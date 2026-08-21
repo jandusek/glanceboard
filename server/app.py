@@ -56,6 +56,7 @@ import base64
 import hashlib
 import io
 import json
+import mimetypes
 import os
 import random
 import re
@@ -114,6 +115,12 @@ EINK_PALETTE = np.array([
     [0,   50,  180],    # Blue
     [230, 200, 0],      # Yellow
 ], dtype=np.float64)
+
+# Colour codes the PhotoPainter firmware expects, in the same row order as
+# EINK_PALETTE above. The firmware orders its palette differently
+# (display.h: BLACK=0, WHITE=1, GREEN=2, BLUE=3, RED=4, YELLOW=5), so this
+# maps our palette index to the firmware's code rather than reusing the index.
+EINK_PALETTE_NIBBLES = np.array([0x0, 0x1, 0x4, 0x2, 0x3, 0x5], dtype=np.uint8)
 
 BACKUP_QUOTES = [
     "Be kind to everyone you meet today!",
@@ -953,57 +960,50 @@ Format: [{{"event": "Dad's birthday", "date": "2026-07-10", "type": "birthday", 
 
 # ─── Prompt Building ────────────────────────────────────────────
 
-def get_season(month):
-    """Get the Australian season for a given month."""
+TROPICS_LATITUDE = 23.5
+
+
+def is_tropical(latitude):
+    """True if the latitude sits between the tropics of Cancer and Capricorn."""
+    return latitude is not None and abs(latitude) <= TROPICS_LATITUDE
+
+
+def get_season(month, latitude=None):
+    """Get the season for a given month, aware of the hemisphere.
+
+    The table is Southern Hemisphere, which was the project's original
+    assumption. When a latitude is supplied and the location sits north of
+    the equator the season is flipped, so an August day in Berlin reads as
+    summer rather than winter.
+
+    Locations inside the tropics have no meaningful four-season cycle, so
+    they return "tropical" instead and the scene is described by climate
+    rather than by season.
+    """
+    if is_tropical(latitude):
+        return "tropical"
+
     seasons = {
         12: "summer", 1: "summer", 2: "summer",
         3: "autumn", 4: "autumn", 5: "autumn",
         6: "winter", 7: "winter", 8: "winter",
         9: "spring", 10: "spring", 11: "spring",
     }
-    return seasons.get(month, "spring")
+    season = seasons.get(month, "spring")
+    if latitude is not None and latitude >= 0:
+        opposite = {"summer": "winter", "winter": "summer",
+                    "autumn": "spring", "spring": "autumn"}
+        season = opposite[season]
+    return season
 
 
-def _filter_remaining_events(events, timezone, exclude_all_day=False):
-    """Filter events to only those that haven't started yet.
+def _determine_mode_and_events(hour, today_events, timezone):
+    """Determine the display mode, banner text, and events.
 
-    Once an event has started, it's already happening — no need to
-    "prepare" for it.  This means the display transitions to tomorrow
-    as soon as all remaining events have begun, rather than waiting
-    for them to finish.
-
-    If exclude_all_day is True, all-day events are also removed (used
-    in the afternoon when they're no longer useful to display).
-    """
-    tz = ZoneInfo(timezone)
-    now = datetime.now(tz)
-    remaining = []
-    for ev in events:
-        start_iso = ev.get("start_iso")
-        if start_iso is None:
-            # All-day events or events without start time
-            if not exclude_all_day:
-                remaining.append(ev)
-        else:
-            try:
-                start_dt = datetime.fromisoformat(start_iso)
-                if start_dt.tzinfo is None:
-                    start_dt = start_dt.replace(tzinfo=tz)
-                if start_dt > now:
-                    remaining.append(ev)
-            except (ValueError, TypeError):
-                remaining.append(ev)  # Include if we can't parse
-    return remaining
-
-
-def _determine_mode_and_events(hour, today_events, tomorrow_events, timezone):
-    """Determine the display mode, banner text, and filtered events.
-
-    Logic:
-    - If no events today and tomorrow: Show friendly time-of-day greeting (GOOD MORNING/AFTERNOON/EVENING)
-    - Before 10am: Full day view — show ALL of today's events if any, else morning greeting
-    - 10am-3pm: Show remaining events. If none left, switch to tomorrow if it has events
-    - 3pm+: Show remaining timed events only. If none left, switch to tomorrow if it has events
+    The board is always about today.  Every one of today's events is shown
+    all day long, including ones that have already happened — the display
+    never looks ahead to tomorrow.  When there are no events at all, fall
+    back to a friendly time-of-day greeting.
 
     Returns:
         (mode, banner_text, events) tuple
@@ -1011,49 +1011,18 @@ def _determine_mode_and_events(hour, today_events, tomorrow_events, timezone):
     tz = ZoneInfo(timezone)
     now = datetime.now(tz)
     day_name = now.strftime("%A")
-    tomorrow_name = (now + timedelta(days=1)).strftime("%A")
 
-    # If there are no events today AND no events tomorrow
-    if not today_events and not tomorrow_events:
-        if hour < 12:
-            banner = "GOOD MORNING!"
-        elif hour < 17:
-            banner = "GOOD AFTERNOON!"
-        else:
-            banner = "GOOD EVENING!"
-        return "today", banner, []
+    if today_events:
+        return "today", f"{day_name.upper()} ADVENTURE", today_events
 
-    if hour < 10:
-        # Early morning — show the full day ahead
-        if today_events:
-            return "today", f"THIS {day_name.upper()}'S ADVENTURE!", today_events
-        else:
-            return "today", "GOOD MORNING!", []
-
-    # After 3pm, drop all-day events — they've served their purpose
-    exclude_all_day = (hour >= 15)
-    remaining = _filter_remaining_events(today_events, timezone, exclude_all_day=exclude_all_day)
-
-    if remaining:
-        # There are still events today
-        if hour < 15:
-            banner = "COMING UP TODAY!"
-        elif hour < 19:
-            banner = "THIS EVENING!"
-        else:
-            banner = "TONIGHT!"
-        return "today", banner, remaining
+    # No events at all — friendly greeting
+    if hour < 12:
+        banner = "GOOD MORNING!"
+    elif hour < 17:
+        banner = "GOOD AFTERNOON!"
     else:
-        # All today's events are done — check if tomorrow has events
-        if tomorrow_events:
-            return "tomorrow", f"TOMORROW'S ADVENTURE ({tomorrow_name.upper()})!", tomorrow_events
-        else:
-            # Fall back to greeting
-            if hour < 17:
-                banner = "GOOD AFTERNOON!"
-            else:
-                banner = "GOOD EVENING!"
-            return "today", banner, []
+        banner = "GOOD EVENING!"
+    return "today", banner, []
 
 
 def _compute_generation_hash(mode, banner_text, events, weather_summary="", weather=None):
@@ -1459,13 +1428,13 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
                  weather=None, birthdays=None, aesthetic="whimsical",
                  scene_description="", important_events=None,
                  location_name="", layout_placements=None, widget_configs=None,
-                 widget_data=None):
+                 widget_data=None, latitude=None):
     """
     Build the image generation prompt from events + characters + weather + countdowns.
     """
     tz = ZoneInfo(timezone)
     now = datetime.now(tz)
-    raw_season = get_season(now.month)
+    raw_season = get_season(now.month, latitude)
 
     # Use Gemini-generated scene description if available, otherwise fall back
     if not scene_description:
@@ -1498,22 +1467,28 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
             region_guidance_parts.append(
                 "- This is set in the UK. Use regionally appropriate flora and fauna."
             )
-        # Add more regions as needed
+        else:
+            region_guidance_parts.append(
+                f"- This is set in {location_name}. Use flora, fauna, architecture and "
+                f"clothing appropriate to that region. Do not draw wildlife or plants "
+                f"that do not occur there."
+            )
+    if is_tropical(latitude):
+        region_guidance_parts.append(
+            "- This location is in the tropics, which has no seasons. Do NOT depict "
+            "seasonal cues of any kind: no autumn leaves, no bare winter branches, no "
+            "spring blossom, and never snow, frost or ice. Draw a warm tropical setting "
+            "instead — strong sunshine, bright clear light, palms and lush green foliage, "
+            "and characters in light, airy clothing."
+        )
     region_guidance = "\n".join(region_guidance_parts)
 
-    # Always compute day_name (used in prompt template substitution)
-    if mode == "tomorrow":
-        target_date = now + timedelta(days=1)
-        day_name = target_date.strftime("%A")
-    else:
-        day_name = now.strftime("%A")
+    # The board is always about today
+    day_name = now.strftime("%A")
 
     # Use provided banner_text, or fall back to default
     if not banner_text:
-        if mode == "tomorrow":
-            banner_text = f"WHAT'S ON TOMORROW ({day_name.upper()})"
-        else:
-            banner_text = f"THIS {day_name.upper()}'S ADVENTURE!"
+        banner_text = f"{day_name.upper()} ADVENTURE"
 
     # Build event list — prefer Gemini-humanized text when available
     event_list_items = []
@@ -1744,12 +1719,8 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
         unit = weather.get("unit_symbol", "°C")
         condition = weather.get("condition", "")
         emoji = weather.get("emoji", "")
-        high = weather.get("high")
-        low = weather.get("low")
 
         weather_badge = f"{emoji} {temp}{unit} {condition}"
-        if high is not None and low is not None:
-            weather_badge += f" (H:{high}{unit} L:{low}{unit})"
 
         weather_section = (
             f"In the BOTTOM LEFT corner of the image, draw a small weather badge or "
@@ -1944,6 +1915,30 @@ Remember: 800×480 pixels, wide landscape, generous margins on all sides, white 
 
 # ─── Image Generation ───────────────────────────────────────────
 
+def _load_reference_image(img_url):
+    """Return (bytes, mime_type) for one character reference image, or None.
+
+    /api/upload stores character photos on disk and returns a site-relative
+    path such as "/uploads/abc.jpg". requests cannot fetch that ("No scheme
+    supplied"), so read those straight off disk. Anything carrying a scheme is
+    still fetched over HTTP.
+    """
+    if img_url.startswith(("http://", "https://")):
+        resp = requests.get(img_url, timeout=15)
+        if resp.status_code != 200:
+            print(f"  Reference image {img_url} returned HTTP {resp.status_code}")
+            return None
+        return resp.content, resp.headers.get("Content-Type", "image/png")
+
+    local_path = os.path.join("data", img_url.lstrip("/"))
+    if not os.path.exists(local_path):
+        print(f"  Reference image not found on disk: {local_path}")
+        return None
+    mime = mimetypes.guess_type(local_path)[0] or "image/png"
+    with open(local_path, "rb") as fh:
+        return fh.read(), mime
+
+
 def generate_image_via_openrouter(prompt, api_key, model, reference_image_urls=None):
     """Call OpenRouter's Image API to generate an image."""
     headers = {
@@ -1987,11 +1982,18 @@ def generate_image_via_openrouter(prompt, api_key, model, reference_image_urls=N
     return None
 
 
-def generate_image_via_google_ai(prompt, api_key, model="gemini-3-pro-image", reference_image_urls=None):
+def generate_image_via_google_ai(prompt, api_key, model="gemini-3-pro-image", reference_image_urls=None,
+                                 image_size=None, aspect_ratio=None):
     """Call Google AI Studio (Gemini API) to generate an image.
 
     Uses the generateContent endpoint with responseModalities=["IMAGE", "TEXT"].
     """
+    if not model:
+        # An empty image_model in config.json builds ".../models/:generateContent",
+        # which Google answers with a bare 404 and no message.
+        print("  \u274c No image model configured — set 'image_model' in data/config.json")
+        return None
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
     # Build content parts
@@ -2001,35 +2003,55 @@ def generate_image_via_google_ai(prompt, api_key, model="gemini-3-pro-image", re
     if reference_image_urls:
         for img_url in reference_image_urls:
             try:
-                img_resp = requests.get(img_url, timeout=15)
-                if img_resp.status_code == 200:
-                    img_b64 = base64.b64encode(img_resp.content).decode("utf-8")
-                    content_type = img_resp.headers.get("Content-Type", "image/png")
-                    parts.append({
-                        "inline_data": {
-                            "mime_type": content_type,
-                            "data": img_b64,
-                        }
-                    })
+                loaded = _load_reference_image(img_url)
+                if not loaded:
+                    continue
+                content, content_type = loaded
+                parts.append({
+                    "inline_data": {
+                        "mime_type": content_type,
+                        "data": base64.b64encode(content).decode("utf-8"),
+                    }
+                })
             except Exception as e:
-                print(f"Failed to fetch reference image: {e}")
+                print(f"Failed to load reference image {img_url}: {e}")
         if parts:
             print(f"Passing {len(parts)} reference images to Gemini")
 
     # Add the text prompt
     parts.append({"text": prompt})
 
+    generation_config = {
+        "responseModalities": ["IMAGE", "TEXT"],
+    }
+
+    # Optional output sizing. Gemini 3 image models default to 1K; an 800x480
+    # e-ink panel is only 0.38 MP, so requesting a smaller size costs less and
+    # loses nothing once resize_and_dither has run. Values are "512", "1K",
+    # "2K", "4K" (uppercase K is required). Only sent when configured, so the
+    # default request shape is unchanged.
+    image_config = {}
+    if image_size:
+        image_config["imageSize"] = image_size
+    if aspect_ratio:
+        image_config["aspectRatio"] = aspect_ratio
+    if image_config:
+        generation_config["imageConfig"] = image_config
+        print(f"  Requesting imageConfig: {image_config}")
+
     payload = {
         "contents": [{"parts": parts}],
-        "generationConfig": {
-            "responseModalities": ["IMAGE", "TEXT"],
-        },
+        "generationConfig": generation_config,
     }
 
     for attempt in range(3):
         try:
             response = requests.post(url, json=payload, timeout=240)
             if response.status_code == 429:
+                # Without this the whole function can return None having printed
+                # nothing at all, surfacing as a bare 500 with no explanation.
+                print(f"  Gemini 429 for {model} (attempt {attempt + 1}/3): "
+                      f"{response.text[:300]}")
                 time.sleep(5 * (attempt + 1))
                 continue
             if response.status_code != 200:
@@ -2042,10 +2064,15 @@ def generate_image_via_google_ai(prompt, api_key, model="gemini-3-pro-image", re
             for candidate in candidates:
                 content = candidate.get("content", {})
                 for part in content.get("parts", []):
-                    if "inlineData" in part:
-                        return base64.b64decode(part["inlineData"]["data"])
-                    if "inline_data" in part:
-                        return base64.b64decode(part["inline_data"]["data"])
+                    blob = part.get("inlineData") or part.get("inline_data")
+                    if blob:
+                        data = base64.b64decode(blob["data"])
+                        try:
+                            print(f"  Gemini returned {Image.open(io.BytesIO(data)).size} "
+                                  f"({len(data) // 1024} KB)")
+                        except Exception:
+                            pass
+                        return data
 
             print(f"No image in Gemini response (attempt {attempt+1})")
         except Exception as e:
@@ -2146,23 +2173,20 @@ def _generate_for_device(config: dict, force: bool = False):
     now = datetime.now(tz)
     hour = now.hour
     today = now.date()
-    tomorrow = today + timedelta(days=1)
 
-    # ─── Fetch events for today AND tomorrow (iCal) ─────────────
+    # ─── Fetch today's events (iCal) ────────────────────────────
     today_events = []
-    tomorrow_events = []
     birthdays = []
     
     if ical_url:
         today_events = fetch_events_ical(ical_url, timezone=timezone, target_date=today)
-        tomorrow_events = fetch_events_ical(ical_url, timezone=timezone, target_date=tomorrow)
-        print(f"  📅 iCal: {len(today_events)} today, {len(tomorrow_events)} tomorrow")
+        print(f"  📅 iCal: {len(today_events)} today")
     else:
         print("  ⚠️ No iCal URL provided")
 
     # ─── Smart mode determination ───────────────────────────────
     mode, banner_text, events = _determine_mode_and_events(
-        hour, today_events, tomorrow_events, timezone
+        hour, today_events, timezone
     )
     print(f"  Mode: {mode}, Banner: '{banner_text}', Events: {len(events)}")
 
@@ -2220,7 +2244,7 @@ def _generate_for_device(config: dict, force: bool = False):
     # use the text model to generate a realistic, location-aware description.
     scene_description = ""
     if weather:
-        raw_season = get_season(now.month)
+        raw_season = get_season(now.month, latitude)
         scene_description = describe_scene_weather_via_gemini(
             weather, raw_season, timezone, api_key,
             api_provider=api_provider,
@@ -2271,6 +2295,7 @@ def _generate_for_device(config: dict, force: bool = False):
         layout_placements=layout_placements,
         widget_configs=widget_configs,
         widget_data=widget_data,
+        latitude=latitude,
     )
 
     # Collect reference images
@@ -2293,7 +2318,11 @@ def _generate_for_device(config: dict, force: bool = False):
         # Strip 'google/' prefix if present
         gemini_model = model.replace("google/", "") if model.startswith("google/") else model
         print(f"  Using Google AI Studio: {gemini_model}")
-        img_bytes = generate_image_via_google_ai(prompt, api_key, gemini_model, reference_image_urls=refs)
+        img_bytes = generate_image_via_google_ai(
+            prompt, api_key, gemini_model, reference_image_urls=refs,
+            image_size=config.get("image_size") or None,
+            aspect_ratio=config.get("image_aspect_ratio") or None,
+        )
 
     if not img_bytes:
         return {"success": False, "error": "Image generation failed"}
@@ -2611,6 +2640,54 @@ def get_display_image(format: str = "png"):
     
     return FileResponse(image_path, media_type="image/png", filename="display.png")
 
+@app.get("/api/display/raw")
+def get_display_raw():
+    """Raw packed 4bpp framebuffer for the PhotoPainter firmware.
+
+    The Glanceboard firmware decodes nothing: display_show_image() memcpy's the
+    HTTP response body straight into the panel framebuffer, so a PNG or BMP
+    renders as noise. It expects exactly DISPLAY_WIDTH * DISPLAY_HEIGHT / 2
+    bytes (192000 for 800x480) of 4bpp data — two pixels per byte, even x in
+    the high nibble, odd x in the low nibble, row-major.
+    """
+    from fastapi.responses import Response
+
+    dithered = "data/images/latest_display_dithered.png"
+    original = "data/images/latest_display.png"
+
+    if os.path.exists(dithered):
+        image_path = dithered
+    elif os.path.exists(original):
+        image_path = original
+    else:
+        raise HTTPException(status_code=404, detail="No image generated yet")
+
+    img = Image.open(image_path).convert("RGB")
+    if img.size != (DISPLAY_WIDTH, DISPLAY_HEIGHT):
+        img = img.resize((DISPLAY_WIDTH, DISPLAY_HEIGHT), Image.LANCZOS)
+
+    # Snap every pixel to the nearest palette entry, then translate our palette
+    # index into the firmware's colour code.
+    # int32, not int16: squared channel differences reach 255**2 = 65025,
+    # which overflows int16 and silently mismatches colours.
+    pixels = np.asarray(img, dtype=np.int32)
+    palette = EINK_PALETTE.astype(np.int32)
+    distances = ((pixels[:, :, None, :] - palette[None, None, :, :]) ** 2).sum(axis=3)
+    nibbles = EINK_PALETTE_NIBBLES[np.argmin(distances, axis=2)]
+
+    packed = ((nibbles[:, 0::2] << 4) | nibbles[:, 1::2]).astype(np.uint8)
+    data = packed.tobytes()
+
+    expected = DISPLAY_WIDTH * DISPLAY_HEIGHT // 2
+    if len(data) != expected:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Packed {len(data)} bytes, expected {expected}",
+        )
+
+    return Response(content=data, media_type="application/octet-stream")
+
+
 @app.get("/api/display/check")
 def check_display_update():
     """
@@ -2642,16 +2719,13 @@ def preview_prompt():
     tz = ZoneInfo(timezone)
     hour = datetime.now(tz).hour
     today = datetime.now(tz).date()
-    tomorrow = today + timedelta(days=1)
 
     today_events = []
-    tomorrow_events = []
     if ical_url:
         today_events = fetch_events_ical(ical_url, timezone=timezone, target_date=today)
-        tomorrow_events = fetch_events_ical(ical_url, timezone=timezone, target_date=tomorrow)
 
     mode, banner_text, events = _determine_mode_and_events(
-        hour, today_events, tomorrow_events, timezone
+        hour, today_events, timezone
     )
 
     weather = None
@@ -2703,6 +2777,7 @@ def preview_prompt():
         layout_placements=layout_placements,
         widget_configs=widget_configs,
         widget_data=widget_data,
+        latitude=latitude,
     )
 
     return {

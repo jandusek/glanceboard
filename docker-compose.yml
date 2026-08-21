@@ -1,0 +1,57 @@
+# Glanceboard — self-hosted container deployment.
+#
+# Copy .env.example to .env to override the port, timezone, or user. Every
+# setting has a working default, so this file runs as-is without a .env.
+#
+# On Synology DSM, Container Manager (Project → Create) builds this on the NAS
+# itself, so the image matches your unit's architecture with no cross-building
+# or registry push. See DOCKER_SYNOLOGY.md.
+
+services:
+  glanceboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Set to "true" only if you want the optional Gmail digest widget.
+        INSTALL_EMAIL: "false"
+    image: glanceboard:local
+    container_name: glanceboard
+    restart: unless-stopped
+    init: true
+
+    # Use Docker's default bridge (docker0) rather than the per-project network
+    # Compose would otherwise create. Required on Synology DSM, which only sets
+    # up NAT/masquerade for docker0 — containers on user-defined Compose
+    # networks resolve DNS but get no outbound internet, which shows up as TCP
+    # connect timeouts to every external host. Harmless elsewhere: this is a
+    # single-container project, so it needs no service discovery.
+    network_mode: bridge
+
+    ports:
+      # Left side is the host port; the container always listens on 8000.
+      # Override with GLANCEBOARD_PORT in .env.
+      - "${GLANCEBOARD_PORT:-8000}:8000"
+
+    environment:
+      # Container clock. The app has its own timezone setting in the dashboard —
+      # keep the two aligned or scheduled generation lands at the wrong hour.
+      TZ: "${TZ:-UTC}"
+
+    volumes:
+      # Everything worth keeping lives here: config.json (holds your Gemini
+      # API key), generated images, and uploaded character photos.
+      - ./data:/app/server/data
+
+    # Defaults to root, which works without any host-side preparation. To run
+    # unprivileged, set PUID/PGID in .env AND chown ./data (including its
+    # images/ and uploads/ subdirectories) to that uid:gid BEFORE the first
+    # start — app.py creates those at import time, so anything created during a
+    # root start stays root-owned and later non-root uploads fail with a 500.
+    user: "${PUID:-0}:${PGID:-0}"
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

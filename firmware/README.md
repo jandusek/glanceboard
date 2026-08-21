@@ -16,11 +16,11 @@ limitations under the License.
 
 # ESP32-S3 PhotoPainter — Firmware & Setup
 
-The Waveshare ESP32-S3 PhotoPainter is a 7.3" colour e-ink display in a wooden frame with built-in WiFi. Glanceboard uses [custom firmware](https://github.com/google-gemini/glanceboard-firmware) that handles WiFi setup, image fetching, and display rendering — no SD card or manual configuration needed.
+The Waveshare ESP32-S3 PhotoPainter is a 7.3" colour e-ink display in a wooden frame with built-in WiFi. Glanceboard drives it with the community [esp32-photoframe](https://github.com/aitjcize/esp32-photoframe) firmware, which handles WiFi setup, scheduled image fetching, and dithered rendering — no SD card required.
 
 ## Flashing the Firmware
 
-> ⚠️ **You must flash the Glanceboard firmware.** The stock Waveshare firmware does not support automatic image fetching from a URL.
+> ⚠️ **You must replace the stock firmware.** The Waveshare firmware that ships on the device cannot fetch images from a URL.
 
 ### Requirements
 - **Google Chrome or Microsoft Edge** (Web Serial API required)
@@ -28,56 +28,97 @@ The Waveshare ESP32-S3 PhotoPainter is a 7.3" colour e-ink display in a wooden f
 
 ### Steps
 
-1. Open the [Glanceboard Web Flasher](https://raphdixon.github.io/glanceboard-firmware/) in **Chrome or Edge**
+1. Open the [esp32-photoframe web flasher](https://aitjcize.github.io/esp32-photoframe/#flash) in **Chrome or Edge**
 2. Connect your PhotoPainter to your computer via USB-C
-3. Click **Install Glanceboard Firmware** and select the USB serial device
+3. Click **Install** and select the USB serial device
 4. Wait for the flash to complete (~2 minutes)
 5. Unplug and replug the USB-C cable to reboot
 
-## WiFi Setup & Configuration
+If the device isn't detected, hold the **BOOT** button and press **PWR** to enter download mode, then try again.
 
-After flashing, the device handles everything through a single setup flow:
+## WiFi Setup
 
-### Initial Setup
+On first boot the device creates its own WiFi network and shows a QR code on the e-ink display.
 
-1. **Power on** the PhotoPainter — the e-ink display shows a setup screen with the WiFi name `Glanceboard-XXXX`
-2. On your phone or computer, **connect to the `Glanceboard-XXXX` WiFi network** (no password needed)
-3. A captive portal page opens automatically (or navigate to `http://192.168.4.1`)
-4. Enter your **WiFi network name** and **password** (leave password blank for open networks)
-5. Paste the **Display Image URL** from your Glanceboard dashboard:
-   - Found in **Settings → E-Ink Display Setup → 📋 Copy URL**
-   - Looks like: `http://YOUR_SERVER_IP:8000/images/latest_display.bmp`
-6. Choose a **poll interval** (how often the display checks for new images)
-7. Click **Save & Connect**
+1. **Scan the QR code** with your phone, or connect manually to the `PhotoFrame - XXXXXX` network and open `http://192.168.4.1`
+2. Enter your **WiFi network name** and **password**
+3. Save — the device reboots and joins your network
 
-The device restarts, connects to your WiFi, and begins polling for images. The display updates within ~60 seconds.
+The firmware also supports SD-card provisioning (a `wifi.txt` file with the SSID and password, deleted after it is read) and setup through the iOS/Android companion app.
 
-### After Setup
+Once on your network, the display is reachable at [photoframe.local](http://photoframe.local) or its IP address from any browser on the same network.
 
-- The display shows an **"Online"** screen with the device's IP address
-- Access the device's IP in any browser on the same network to update settings
-- The device automatically fetches new images at the configured interval
+## Pointing the Display at Glanceboard
 
-### Factory Reset
+On a computer connected to the same WiFi network:
 
-Hold the **BOOT** button for 10 seconds to reset all settings. The device will restart in setup mode.
+1. Go to [photoframe.local](http://photoframe.local) and scroll down to **Settings**
+2. On the **General** tab, set the **timezone** — rotation schedules follow the device's timezone, not your browser's
+3. Open the **Auto Rotate** tab and enable **Auto-Rotate**
+4. Set **Rotation Mode** to **URL - Fetch image from URL**
+5. Paste your **Display Image URL** into the **Image URL** field. Copy it from the Glanceboard dashboard under **Settings → E-Ink Display Setup → 📋 Copy URL** — it looks like `http://YOUR_SERVER_IP:8000/images/latest_display.bmp`
+6. Set a schedule (see below) and click **Save**
+
+If your server requires authentication, the same panel has an **Access Token** field (sent as `Authorization: Bearer`) plus custom header name/value fields.
+
+## Rotation Schedules
+
+The Auto Rotate tab accepts up to 7 schedule rules. Each rule has a day selector — `EVERY DAY`, `WEEKDAYS`, `WEEKENDS`, or `CUSTOM` — and one of two timing modes:
+
+| Mode | Use for | Example |
+|------|---------|---------|
+| **Throughout the day** | A repeating interval inside an active window | Every 2 hours, 07:00–23:00 |
+| **At specific times** | Fixed times of day | 06:00 every morning |
+
+An **Advanced (cron)** field exposes the underlying rules directly. They use a simplified 3-field format — `minute hour day-of-week` — and the next rotation is the earliest time matching any rule:
+
+```
+0 6 *              → 06:00 every day
+0 7-23/2 *         → every 2 hours between 07:00 and 23:00
+*/30 8-22 1-5      → every 30 min, 08:00–22:00, weekdays only
+0 6 *  +  0 18 *   → 06:00 and 18:00 daily (two rules)
+```
+
+There is no separate quiet-hours setting — bound the active hours in the rules themselves to avoid overnight refreshes.
+
+After saving, **Upcoming rotations** lists the next few wake times so you can confirm the schedule. Those times are shown in your browser's timezone while the device follows its own, so set the timezone first if the two differ.
+
+> **Align the server with the display.** Glanceboard generates images on the hours listed in `generation_schedule` (default `[4, 10, 14, 18]`, in your configured timezone). Make sure a generation slot falls *before* each display refresh — for a 06:00 rotation, keep the 4am slot enabled.
+
+## Power & Reachability
+
+| Mode | Behaviour |
+|------|-----------|
+| **Deep sleep** (default) | ~10μA asleep, weeks to months on battery. Web UI reachable only while awake. |
+| **Always-on** | ~40–80mA with auto light sleep, days to weeks on battery. Web UI always reachable. |
+
+The PhotoPainter's AXP2101 PMIC detects USB power, so a USB-powered display stays awake automatically even with deep sleep enabled.
+
+### Buttons
+
+**While in deep sleep:**
+
+| Button | Function |
+|--------|----------|
+| **BOOT** | Wake the device and start the web UI — it stays awake |
+| **KEY** | Wake, rotate to the next image, then return to sleep |
 
 ## Troubleshooting
 
 ### Display stays black after flashing
 - Unplug and replug the USB-C cable — e-paper displays retain their old image until the firmware boots and refreshes
 
-### Can't connect to Glanceboard-XXXX WiFi
-- Make sure the device has been flashed with the Glanceboard firmware
+### Can't find the `PhotoFrame - XXXXXX` WiFi network
+- Make sure the flash completed successfully
 - Try unplugging and replugging the device
-- The setup WiFi network may take 10-15 seconds to appear after boot
+- The setup network may take 10–15 seconds to appear after boot
 
-### Display shows "WiFi connect failed"
-- Double-check your WiFi credentials
-- Make sure the device is within range of your WiFi router
-- Hold the BOOT button for 10 seconds to factory reset and try again
+### Can't reach photoframe.local
+- Try the device's IP address directly — mDNS is unreliable on some networks
+- If the device is on battery with deep sleep enabled, press **BOOT** to wake it first
 
 ### Image not updating
-- Check that the image URL is correct and accessible from the device's network
+- Check that the image URL is correct and reachable from the device's network — a `localhost` address won't work; use the server's LAN IP
 - Verify the Glanceboard server is running
-- Check the poll interval setting
+- Check **Upcoming rotations** on the Auto Rotate tab, and confirm the device's timezone is set correctly
+- Confirm a server generation slot runs before the display's refresh time

@@ -57,9 +57,9 @@ Glanceboard AIS is a single-file web app that transforms your Google Calendar in
 
 ## Using with an E-Ink Display
 If you have a Waveshare ESP32-S3 PhotoPainter, you can set it up to display your Glanceboard:
-1. Flash your device with the custom firmware using the [Glanceboard Web Flasher](https://raphdixon.github.io/glanceboard-firmware/) in Chrome or Edge.
-2. Connect the display to your WiFi.
-3. Configure it to fetch your image via URL, or manually generate an image in the dashboard, click 'Download for E-Ink' to get the dithered version, and upload to your display.
+1. Flash your device with the [esp32-photoframe firmware](https://aitjcize.github.io/esp32-photoframe/#flash) in Chrome or Edge.
+2. Connect the display to your WiFi by scanning the QR code it shows on first boot.
+3. At [photoframe.local](http://photoframe.local), open **Settings → Auto Rotate**, enable Auto-Rotate, set **Rotation Mode** to **URL - Fetch image from URL**, and paste your display image URL. Or generate an image in the dashboard, click 'Download for E-Ink' to get the dithered version, and upload it to the display manually.
 
 ## Architecture
 Everything runs client-side:

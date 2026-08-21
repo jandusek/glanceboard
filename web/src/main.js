@@ -228,7 +228,7 @@ let onboardingData = {
 const WIDGETS = {
   calendar:  { icon: "📅", name: "Calendar",   preview: "9am Meeting\n12pm Lunch\n3pm Workshop", needsConfig: true, configType: "calendar" },
   upcoming:  { icon: "🔮", name: "Coming Up",  preview: "🎂 Mum's Birthday (3 days)\n🏖️ Beach Trip (Sat)", needsConfig: false },
-  weather:   { icon: "🌤️", name: "Weather",    preview: "☀️ 24°C Sunny\nH:28° L:18°", needsConfig: true, configType: "location" },
+  weather:   { icon: "🌤️", name: "Weather",    preview: "☀️ 24°C Sunny", needsConfig: true, configType: "location" },
   sports:    { icon: "⚽", name: "Sports",     preview: "Arsenal\nWon 3-1 ✨", needsConfig: true, configType: "sports" },
   quote:     { icon: "💬", name: "Quote",      preview: "\"The only way to do\ngreat work is to love\nwhat you do.\"", needsConfig: false },
   news:      { icon: "📰", name: "News",       preview: "Top Stories Today\n📌 Breaking: ...", needsConfig: false },
@@ -566,7 +566,7 @@ async function loadDashboard() {
         $("#stat-last-gen").textContent = d.toLocaleString();
       }
       if (s.last_mode) {
-        const modeText = s.last_banner || (s.last_mode === "tomorrow" ? "Tomorrow's Events" : "Today's Events");
+        const modeText = s.last_banner || "Today's Events";
         $("#stat-mode").textContent = modeText;
       }
       if (s.events_count !== undefined) {

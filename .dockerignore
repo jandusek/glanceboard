@@ -1,0 +1,30 @@
+# Build artifacts and dependencies — rebuilt inside the image
+web/node_modules
+web/dist
+server/venv
+**/__pycache__
+*.pyc
+
+# Never bake local state or secrets into an image layer
+server/data/config.json
+server/data/images
+server/data/uploads
+server/data/gmail_credentials.json
+server/data/gmail_token.json
+web/src/config.js
+.env
+.env.*
+
+# Not used by the self-hosted container
+functions/
+firebase.json
+firestore.rules
+firestore.indexes.json
+storage.rules
+pi/
+.firebase/
+.firebaserc
+
+.git
+.github
+*.md

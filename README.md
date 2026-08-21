@@ -156,25 +156,47 @@ Glanceboard requires a **Gemini API key** to generate images.
 
 ### Step 1: Flash the firmware
 
+Glanceboard uses the community [esp32-photoframe](https://github.com/aitjcize/esp32-photoframe) firmware. The stock Waveshare firmware cannot fetch images from a URL.
+
 1. Connect your PhotoPainter to your computer via USB-C
-2. Open the [Glanceboard Web Flasher](https://raphdixon.github.io/glanceboard-firmware/) in **Chrome or Edge**
-3. Click **Install Glanceboard Firmware** and select your device
+2. Open the [esp32-photoframe web flasher](https://aitjcize.github.io/esp32-photoframe/#flash) in **Chrome or Edge** (Web Serial is required)
+3. Click **Install** and select the USB serial device
 4. Wait for the flash to complete (~2 minutes)
 5. Unplug and replug the USB-C cable to reboot
 
-### Step 2: Connect to WiFi and configure
+### Step 2: Connect the display to WiFi
 
-1. After rebooting, the display shows a setup screen with the WiFi name `Glanceboard-XXXX`
-2. On your phone or computer, connect to the `Glanceboard-XXXX` WiFi network (no password)
-3. A setup page will open automatically (or go to `http://192.168.4.1`)
-4. Enter your **WiFi network name** and **password** (leave password blank for open networks)
-5. Paste the **Display Image URL** from your Glanceboard dashboard (found in **Settings → E-Ink Display Setup → 📋 Copy URL**) — it looks like `http://YOUR_SERVER_IP:8000/images/latest_display.bmp`
-6. Choose a **poll interval** (how often the display refreshes)
-7. Click **Save & Connect**
+1. On first boot the device creates its own WiFi network named `PhotoFrame - XXXXXX` and shows a QR code
+2. Scan the QR code with your phone, or connect to that network manually and open `http://192.168.4.1`
+3. Enter your **WiFi network name** and **password**, then save
 
-The device will restart, connect to your WiFi, and begin polling for images. The display will update within ~60 seconds.
+Once connected, the display joins your network and is reachable at [photoframe.local](http://photoframe.local) (or its IP) from any browser on the same network.
 
-> **Tip:** You can reconfigure the device later by accessing its IP address from any browser on the same network. The IP is shown on the display after setup.
+### Step 3: Point the display at your Glanceboard
+
+On a computer connected to the same WiFi network:
+
+1. Go to [photoframe.local](http://photoframe.local) and scroll down to **Settings**
+2. On the **General** tab, set your **timezone** — the schedule in the next step follows the device's own timezone, not your browser's
+3. On the **Auto Rotate** tab, enable **Auto-Rotate**
+4. Under **Rotation Mode**, select **URL - Fetch image from URL**
+5. Copy the URL from **Settings → E-Ink Display Setup → 📋 Copy URL** in the Glanceboard dashboard and paste it into the **Image URL** field — it looks like `http://YOUR_SERVER_IP:8000/images/latest_display.bmp`
+6. Set a refresh schedule, then click **Save**
+
+The display fetches your first image on the next scheduled rotation. Use **Upcoming rotations** on the Auto Rotate tab to confirm the schedule landed where you expect.
+
+### Choosing a refresh schedule
+
+The Auto Rotate tab supports up to 7 schedule rules, each with a day selector (`EVERY DAY` / `WEEKDAYS` / `WEEKENDS` / `CUSTOM`) and a choice between:
+
+- **Throughout the day** — a repeating interval within an active window, e.g. every 2 hours from 07:00 to 23:00
+- **At specific times** — fixed times of day, e.g. 06:00 every morning
+
+Use **At specific times** if you want a single daily refresh at a set hour. An **Advanced (cron)** field is also available for rules the UI cannot express.
+
+> **Tip:** Make sure the server has generated a fresh image *before* the display wakes. Generation hours are set by `generation_schedule` in your config (default `[4, 10, 14, 18]`) — for a 06:00 display refresh, keep the 4am slot enabled.
+
+> **Tip:** Reconfigure the device any time at [photoframe.local](http://photoframe.local). On the PhotoPainter the AXP2101 PMIC detects USB power, so a USB-powered display stays awake and the web UI stays reachable. On battery with deep sleep enabled, press the **BOOT** button to wake it — it then stays awake with the web UI running. The **KEY** button triggers an immediate rotation without waking it fully.
 
 > **Using a Raspberry Pi as the display?** The legacy Pi + separate e-ink HAT setup is still supported — see [Legacy Pi Setup](pi/LEGACY_PI_SETUP.md).
 

@@ -550,21 +550,29 @@ textarea{resize:vertical}
               <h3 style="font-size:14px;font-weight:600;margin-bottom:4px">Step 1: Flash the firmware</h3>
               <ol class="eink-setup-steps">
                 <li>Connect the PhotoPainter to your computer via USB-C</li>
-                <li>Open the <a href="https://raphdixon.github.io/glanceboard-firmware/" target="_blank"><strong>Glanceboard Web Flasher</strong></a> in Chrome or Edge</li>
-                <li>Click <strong>Install Glanceboard Firmware</strong> and select your device</li>
+                <li>Open the <a href="https://aitjcize.github.io/esp32-photoframe/#flash" target="_blank"><strong>esp32-photoframe web flasher</strong></a> in Chrome or Edge</li>
+                <li>Click <strong>Install</strong> and select your device</li>
                 <li>Wait for the flash to complete (~2 minutes), then unplug and replug the USB cable</li>
               </ol>
 
-              <h3 style="font-size:14px;font-weight:600;margin:16px 0 4px">Step 2: Connect to WiFi & configure</h3>
+              <h3 style="font-size:14px;font-weight:600;margin:16px 0 4px">Step 2: Connect to WiFi</h3>
               <ol class="eink-setup-steps">
-                <li>The display shows a setup screen with the WiFi name <strong>Glanceboard-XXXX</strong></li>
-                <li>On your phone/computer, connect to the <strong>Glanceboard-XXXX</strong> WiFi (no password)</li>
-                <li>A setup page opens automatically (or go to <strong>http://192.168.4.1</strong>)</li>
-                <li>Enter your <strong>WiFi credentials</strong></li>
-                <li>Paste the <strong>Display Image URL</strong> from above (📋 Copy URL)</li>
-                <li>Choose a <strong>poll interval</strong> and click <strong>Save &amp; Connect</strong></li>
+                <li>On first boot the display shows a QR code and creates a <strong>PhotoFrame - XXXXXX</strong> WiFi network</li>
+                <li>Scan the QR code with your phone, or connect to that network and open <strong>http://192.168.4.1</strong></li>
+                <li>Enter your <strong>WiFi credentials</strong> and save</li>
               </ol>
-              <p style="font-size:13px;color:var(--text-secondary);margin-top:12px">The device restarts, connects to WiFi, and starts polling for images. The display updates within ~60 seconds.</p>
+              <p style="font-size:13px;color:var(--text-secondary);margin-top:12px">The device reboots and joins your network. It is then reachable at <a href="http://photoframe.local" target="_blank"><strong>photoframe.local</strong></a> or its IP address.</p>
+
+              <h3 style="font-size:14px;font-weight:600;margin:16px 0 4px">Step 3: Point it at your Glanceboard</h3>
+              <ol class="eink-setup-steps">
+                <li>Go to <a href="http://photoframe.local" target="_blank"><strong>photoframe.local</strong></a> and scroll down to <strong>Settings</strong></li>
+                <li>On the <strong>General</strong> tab, set your <strong>timezone</strong> — schedules follow the device's timezone, not your browser's</li>
+                <li>On the <strong>Auto Rotate</strong> tab, enable <strong>Auto-Rotate</strong></li>
+                <li>Set <strong>Rotation Mode</strong> to <strong>URL - Fetch image from URL</strong></li>
+                <li>Paste the <strong>Display Image URL</strong> from above (📋 Copy URL) into the <strong>Image URL</strong> field</li>
+                <li>Set a schedule and click <strong>Save</strong></li>
+              </ol>
+              <p style="font-size:13px;color:var(--text-secondary);margin-top:12px">For a single daily refresh, pick <strong>EVERY DAY</strong> and <strong>At specific times</strong>, then set the hour you want (e.g. 06:00). For a repeating interval, use <strong>Throughout the day</strong> and bound the active hours so it doesn't refresh overnight. <strong>Upcoming rotations</strong> lists the next few wake times so you can confirm it took.</p>
 
               <div class="guide-tip">💡 <strong>Using a Raspberry Pi instead?</strong> See the <a href="https://github.com/google-gemini/glanceboard" target="_blank">Glanceboard GitHub</a> for the legacy Pi setup guide.</div>
             </div>
@@ -645,7 +653,7 @@ const BACKUP_QUOTES = [
 const WIDGETS = {
   calendar:{icon:'📅',name:'Calendar',preview:'9am Meeting\n12pm Lunch'},
   upcoming:{icon:'🔮',name:'Coming Up',preview:'🎂 Birthday (3 days)\n🏖️ Beach Trip (Sat)'},
-  weather:{icon:'🌤️',name:'Weather',preview:'☀️ 24°C Sunny\nH:28° L:18°'},
+  weather:{icon:'🌤️',name:'Weather',preview:'☀️ 24°C Sunny'},
   sports:{icon:'⚽',name:'Sports',preview:'Arsenal\nWon 3-1 ✨',needsConfig:true,configType:'sports'},
   quote:{icon:'💬',name:'Quote',preview:'"The only way to do\ngreat work..."'},
   news:{icon:'📰',name:'News',preview:'Top Stories\n📌 Breaking...'},
@@ -1116,31 +1124,15 @@ function getUpcomingCountdowns(characters, today) {
   return countdowns;
 }
 
-function determineModeAndEvents(hour, todayEvents, tomorrowEvents) {
+function determineModeAndEvents(hour, todayEvents) {
+  // The board is always about today — all of today's events are shown all
+  // day long, including ones that have already happened.
   const now = new Date();
   const dayName = now.toLocaleDateString('en-US', { weekday: 'long' });
-  const tomorrowName = new Date(now.getTime() + 86400000).toLocaleDateString('en-US', { weekday: 'long' });
 
-  if (!todayEvents.length && !tomorrowEvents.length) {
-    if (hour < 12) return ['today', 'GOOD MORNING!', []];
-    if (hour < 17) return ['today', 'GOOD AFTERNOON!', []];
-    return ['today', 'GOOD EVENING!', []];
-  }
-  if (hour < 10) {
-    if (todayEvents.length) return ['today', `THIS ${dayName.toUpperCase()}'S ADVENTURE!`, todayEvents];
-    return ['today', 'GOOD MORNING!', []];
-  }
-  // Filter remaining events
-  const remaining = todayEvents.filter(ev => {
-    if (!ev.start_iso) return hour < 15; // Keep all-day before 3pm
-    try { return new Date(ev.start_iso) > now; } catch { return true; }
-  });
-  if (remaining.length) {
-    if (hour < 15) return ['today', 'COMING UP TODAY!', remaining];
-    if (hour < 19) return ['today', 'THIS EVENING!', remaining];
-    return ['today', 'TONIGHT!', remaining];
-  }
-  if (tomorrowEvents.length) return ['tomorrow', `TOMORROW'S ADVENTURE (${tomorrowName.toUpperCase()})!`, tomorrowEvents];
+  if (todayEvents.length) return ['today', `${dayName.toUpperCase()} ADVENTURE`, todayEvents];
+
+  if (hour < 12) return ['today', 'GOOD MORNING!', []];
   if (hour < 17) return ['today', 'GOOD AFTERNOON!', []];
   return ['today', 'GOOD EVENING!', []];
 }
@@ -1161,8 +1153,8 @@ function buildPrompt(events, characters, promptTemplate, opts = {}) {
   }
   const regionGuidance = regionParts.join('\n');
 
-  const dayName = mode === 'tomorrow' ? new Date(now.getTime() + 86400000).toLocaleDateString('en-US', { weekday: 'long' }) : now.toLocaleDateString('en-US', { weekday: 'long' });
-  const banner = bannerText || (mode === 'tomorrow' ? `WHAT'S ON TOMORROW (${dayName.toUpperCase()})` : `THIS ${dayName.toUpperCase()}'S ADVENTURE!`);
+  const dayName = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const banner = bannerText || `${dayName.toUpperCase()} ADVENTURE`;
 
   // Event list
   const eventItems = [];
@@ -1216,7 +1208,6 @@ function buildPrompt(events, characters, promptTemplate, opts = {}) {
   let weatherSection = '';
   if (weather) {
     let badge = `${weather.emoji} ${weather.temp}${weather.unit_symbol} ${weather.condition}`;
-    if (weather.high != null) badge += ` (H:${weather.high}${weather.unit_symbol} L:${weather.low}${weather.unit_symbol})`;
     weatherSection = `Draw a small weather badge reading: '${badge}'.`;
   }
 
@@ -1375,16 +1366,14 @@ async function runGeneration() {
     setProgress(5, 'Fetching calendar events...');
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
-    let todayEvents = [], tomorrowEvents = [];
+    let todayEvents = [];
     if (icalUrl) {
       todayEvents = await fetchEventsFromICal(icalUrl, tz, today);
-      tomorrowEvents = await fetchEventsFromICal(icalUrl, tz, tomorrow);
     }
     setProgress(15, `Found ${todayEvents.length} events today...`);
 
     const hour = now.getHours();
-    const [mode, bannerText, events] = determineModeAndEvents(hour, todayEvents, tomorrowEvents);
+    const [mode, bannerText, events] = determineModeAndEvents(hour, todayEvents);
     setProgress(20, 'Fetching weather...');
 
     let weather = null;

@@ -593,46 +593,13 @@ def get_season(month):
     return seasons.get(month, "spring")
 
 
-def _filter_remaining_events(events, timezone, exclude_all_day=False):
-    """Filter events to only those that haven't started yet.
+def _determine_mode_and_events(hour, today_events, timezone):
+    """Determine the display mode, banner text, and events.
 
-    Once an event has started, it's already happening — no need to
-    "prepare" for it.  This means the display transitions to tomorrow
-    as soon as all remaining events have begun, rather than waiting
-    for them to finish.
-
-    If exclude_all_day is True, all-day events are also removed (used
-    in the afternoon when they're no longer useful to display).
-    """
-    tz = ZoneInfo(timezone)
-    now = datetime.now(tz)
-    remaining = []
-    for ev in events:
-        start_iso = ev.get("start_iso")
-        if start_iso is None:
-            # All-day events or events without start time
-            if not exclude_all_day:
-                remaining.append(ev)
-        else:
-            try:
-                start_dt = datetime.fromisoformat(start_iso)
-                if start_dt.tzinfo is None:
-                    start_dt = start_dt.replace(tzinfo=tz)
-                if start_dt > now:
-                    remaining.append(ev)
-            except (ValueError, TypeError):
-                remaining.append(ev)  # Include if we can't parse
-    return remaining
-
-
-def _determine_mode_and_events(hour, today_events, tomorrow_events, timezone):
-    """Determine the display mode, banner text, and filtered events.
-
-    Logic:
-    - Before 10am: Full day view — show ALL of today's events
-    - 10am-3pm: Show remaining events (including all-day). If none left, switch to tomorrow
-    - 3pm+: Show remaining timed events only (all-day events are dropped).
-            If none left, switch to tomorrow
+    The board is always about today.  Every one of today's events is shown
+    all day long, including ones that have already happened — the display
+    never looks ahead to tomorrow.  When there are no events at all, fall
+    back to a friendly time-of-day greeting.
 
     Returns:
         (mode, banner_text, events) tuple
@@ -640,28 +607,18 @@ def _determine_mode_and_events(hour, today_events, tomorrow_events, timezone):
     tz = ZoneInfo(timezone)
     now = datetime.now(tz)
     day_name = now.strftime("%A")
-    tomorrow_name = (now + timedelta(days=1)).strftime("%A")
 
-    if hour < 10:
-        # Early morning — show the full day ahead
-        return "today", f"THIS {day_name.upper()}'S ADVENTURE!", today_events
+    if today_events:
+        return "today", f"{day_name.upper()} ADVENTURE", today_events
 
-    # After 3pm, drop all-day events — they've served their purpose
-    exclude_all_day = (hour >= 15)
-    remaining = _filter_remaining_events(today_events, timezone, exclude_all_day=exclude_all_day)
-
-    if remaining:
-        # There are still events today
-        if hour < 15:
-            banner = "COMING UP TODAY!"
-        elif hour < 19:
-            banner = "THIS EVENING!"
-        else:
-            banner = "TONIGHT!"
-        return "today", banner, remaining
+    # No events at all — friendly greeting
+    if hour < 12:
+        banner = "GOOD MORNING!"
+    elif hour < 17:
+        banner = "GOOD AFTERNOON!"
     else:
-        # All today's events are done — switch to tomorrow
-        return "tomorrow", f"TOMORROW'S ADVENTURE ({tomorrow_name.upper()})!", tomorrow_events
+        banner = "GOOD EVENING!"
+    return "today", banner, []
 
 
 def _compute_generation_hash(mode, banner_text, events, weather_summary="", weather=None):
@@ -944,19 +901,12 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
         # Add more regions as needed
     region_guidance = "\n".join(region_guidance_parts)
 
-    # Always compute day_name (used in prompt template substitution)
-    if mode == "tomorrow":
-        target_date = now + timedelta(days=1)
-        day_name = target_date.strftime("%A")
-    else:
-        day_name = now.strftime("%A")
+    # The board is always about today
+    day_name = now.strftime("%A")
 
     # Use provided banner_text, or fall back to default
     if not banner_text:
-        if mode == "tomorrow":
-            banner_text = f"WHAT'S ON TOMORROW ({day_name.upper()})"
-        else:
-            banner_text = f"THIS {day_name.upper()}'S ADVENTURE!"
+        banner_text = f"{day_name.upper()} ADVENTURE"
 
     # Build event list — prefer Gemini-humanized text when available
     event_list_items = []
@@ -1140,12 +1090,8 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
         unit = weather.get("unit_symbol", "°C")
         condition = weather.get("condition", "")
         emoji = weather.get("emoji", "")
-        high = weather.get("high")
-        low = weather.get("low")
 
         weather_badge = f"{emoji} {temp}{unit} {condition}"
-        if high is not None and low is not None:
-            weather_badge += f" (H:{high}{unit} L:{low}{unit})"
 
         weather_section = (
             f"In the BOTTOM LEFT corner of the image, draw a small weather badge or "
@@ -1463,23 +1409,20 @@ def _generate_for_device(uid, device_id, db, force=False):
     now = datetime.now(tz)
     hour = now.hour
     today = now.date()
-    tomorrow = today + timedelta(days=1)
 
-    # ─── Fetch events for today AND tomorrow (iCal) ─────────────
+    # ─── Fetch today's events (iCal) ────────────────────────────
     today_events = []
-    tomorrow_events = []
     birthdays = []
     
     if ical_url:
         today_events = fetch_events_ical(ical_url, timezone=timezone, target_date=today)
-        tomorrow_events = fetch_events_ical(ical_url, timezone=timezone, target_date=tomorrow)
-        print(f"  📅 iCal: {len(today_events)} today, {len(tomorrow_events)} tomorrow")
+        print(f"  📅 iCal: {len(today_events)} today")
     else:
         print("  ⚠️ No iCal URL provided")
 
     # ─── Smart mode determination ───────────────────────────────
     mode, banner_text, events = _determine_mode_and_events(
-        hour, today_events, tomorrow_events, timezone
+        hour, today_events, timezone
     )
     print(f"  Mode: {mode}, Banner: '{banner_text}', Events: {len(events)}")
 
@@ -1941,10 +1884,9 @@ def preview_prompt(req: https_fn.CallableRequest):
     characters_enabled = device.get("characters_enabled", True)
     calendar_id = device.get("calendar_id", account.get("calendar_id", "primary"))
 
-    # Determine mode
+    # The board is always about today
     tz = ZoneInfo(timezone)
-    hour = datetime.now(tz).hour
-    mode = "tomorrow" if hour >= 14 else "today"
+    mode = "today"
 
     # Fetch events
     events = []
@@ -1952,8 +1894,6 @@ def preview_prompt(req: https_fn.CallableRequest):
     if ical_url:
         tz = ZoneInfo(timezone)
         target_date = datetime.now(tz).date()
-        if mode == "tomorrow":
-            target_date += timedelta(days=1)
         events = fetch_events_ical(ical_url, timezone=timezone, target_date=target_date)
 
     # Fetch weather

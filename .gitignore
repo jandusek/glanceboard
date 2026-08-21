@@ -1,6 +1,7 @@
 # ─── Environment & Secrets ──────────────────────────────
 .env
 .env.*
+!.env.example
 functions/.env
 
 # ─── Firebase ───────────────────────────────────────────
@@ -16,6 +17,9 @@ server/data/gmail_token.json
 
 # ─── Generated Data ────────────────────────────────────
 server/data/images/
+
+# Docker Compose bind mount (holds config.json with API key)
+/data/
 
 # ─── Build Artifacts ────────────────────────────────────
 web/dist/
