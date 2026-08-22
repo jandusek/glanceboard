@@ -33,5 +33,7 @@
       "source": "functions",
       "codebase": "default",
       "runtime": "python311"
-  }
+    }
+  ]
 }
+

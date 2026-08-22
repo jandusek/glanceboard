@@ -25,7 +25,7 @@ Display hardware: Waveshare ESP32-S3 PhotoPainter (all-in-one e-ink frame).
 Legacy Raspberry Pi + separate display is still supported but no longer primary.
 
 Pipeline (per device):
-  1. Fetch calendar events via Google Calendar API (OAuth refresh token)
+  1. Fetch calendar events from the user's iCal feed URL
   2. Fetch weather via Open-Meteo API
   3. Load character config from user's Firestore subcollection
   4. Build an adventure prompt (with weather context)
@@ -37,7 +37,6 @@ Data model:
   User-level (shared across devices):
     Firestore: users/{uid}/settings/account  (API key, timezone, location)
     Firestore: users/{uid}/settings/subscription
-    Firestore: users/{uid}/settings/google_tokens
     Firestore: users/{uid}/characters/{id}
 
   Device-level (per display):
@@ -68,8 +67,6 @@ import requests
 
 from firebase_admin import auth as admin_auth, firestore, initialize_app, storage
 from firebase_functions import https_fn, options, scheduler_fn
-from google.auth.transport.requests import Request as GoogleAuthRequest
-from google.oauth2.credentials import Credentials
 from PIL import Image
 
 # ─── Firebase Init ──────────────────────────────────────────────
@@ -81,9 +78,6 @@ initialize_app()
 DISPLAY_WIDTH = 800
 DISPLAY_HEIGHT = 480
 DEFAULT_TIMEZONE = "Australia/Sydney"
-
-GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
-CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 # E-Ink Spectra 6 color palette (RGB)
 EINK_PALETTE = np.array([
@@ -1630,46 +1624,14 @@ def _generate_for_device(uid, device_id, db, force=False):
             events=events,
         )
 
-    # ─── Daily important events scan ────────────────────────────
-    # Once per day, scan the next 14 days for important events
-    # (birthdays, trips, holidays) and store in Firestore.
+    # ─── Important events ───────────────────────────────────────
+    # Read any previously stored important events (birthdays, trips,
+    # holidays). Populating them requires a calendar scan, which is not
+    # wired up on the iCal path — see server/app.py for the same gap.
     important_events = []
     important_doc = user_ref.collection("settings").document("important_events").get()
     if important_doc.exists:
-        ie_data = important_doc.to_dict()
-        last_scanned = ie_data.get("last_scanned", "")
-        important_events = ie_data.get("events", [])
-    else:
-        last_scanned = ""
-
-    if last_scanned != str(today) and creds:
-        # Fetch 14 days of events for the scan
-        print(f"  📅 Running daily important events scan...")
-        events_14_days = []
-        for day_offset in range(14):
-            target = today + timedelta(days=day_offset)
-            day_events = fetch_events_google_api(
-                creds, calendar_id, timezone, target_date=target,
-            )
-            for ev in day_events:
-                ev["date"] = str(target)
-                ev["days_away"] = day_offset
-            events_14_days.extend(day_events)
-
-        if events_14_days:
-            important_events = scan_important_events_via_gemini(
-                events_14_days, api_key,
-                api_provider=api_provider,
-                characters=characters,
-            )
-
-        # Store results in Firestore
-        user_ref.collection("settings").document("important_events").set({
-            "last_scanned": str(today),
-            "events": important_events,
-            "scanned_at": datetime.now(tz).isoformat(),
-        })
-        print(f"  📅 Stored {len(important_events)} important events")
+        important_events = important_doc.to_dict().get("events", [])
 
     # ─── Build prompt ───────────────────────────────────────────
     prompt = build_prompt(
@@ -1899,44 +1861,6 @@ def generate_display(req: https_fn.CallableRequest):
 
     return result
 
-
-@https_fn.on_call(
-    region="australia-southeast1",
-    secrets=["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
-)
-def exchange_calendar_token(req: https_fn.CallableRequest):
-    """
-    Exchange a Google authorization code for access + refresh tokens.
-    Called after the user completes the GIS authorization code flow on the frontend.
-    """
-    if not req.auth:
-        raise https_fn.HttpsError(
-            code=https_fn.FunctionsErrorCode.UNAUTHENTICATED,
-            message="Authentication required.",
-        )
-
-    code = req.data.get("code")
-    redirect_uri = req.data.get("redirect_uri", "postmessage")
-    if not code:
-        raise https_fn.HttpsError(
-            code=https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
-            message="Authorization code required.",
-        )
-
-    client_id, client_secret = _get_google_secrets()
-
-    # Exchange authorization code for tokens
-    token_response = requests.post(GOOGLE_TOKEN_URI, data={
-        "code": code,
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "redirect_uri": redirect_uri,
-        "grant_type": "authorization_code",
-    })
-
-    if token_response.status_code != 200:
-        print(f"Token exchange failed: {token_response.text}")
-        raise https_fn.HttpsError(
 
 @https_fn.on_call(region="australia-southeast1")
 def get_status(req: https_fn.CallableRequest):
