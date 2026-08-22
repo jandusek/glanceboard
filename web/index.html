@@ -763,6 +763,19 @@
           <label for="char-name">Name</label>
           <input type="text" id="char-name" required placeholder="e.g. Ellis">
         </div>
+        <div class="form-group">
+          <label for="char-inclusion">When to draw them</label>
+          <select id="char-inclusion">
+            <option value="always">Every day — this board is for them</option>
+            <option value="when_mentioned">Only when a calendar event mentions them</option>
+          </select>
+          <p class="help-text">Keep this to a handful of regulars. Everyone else stays in the library until their name comes up.</p>
+        </div>
+        <div class="form-group" id="aliases-group">
+          <label for="char-aliases">Also known as</label>
+          <input type="text" id="char-aliases" placeholder="e.g. mom, mum, mummy">
+          <p class="help-text">Comma-separated. Calendar events rarely use full names — "Trip with mom" only finds Sarah if "mom" is listed here.</p>
+        </div>
         <div class="form-group" id="gender-group">
           <label for="char-gender">Gender</label>
           <select id="char-gender">

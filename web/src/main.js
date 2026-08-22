@@ -1353,17 +1353,29 @@ async function loadCharacters() {
     c.id = d.id;
     const card = document.createElement("div");
     card.className = "character-card";
+    // Missing `inclusion` means a pre-casting record, which the backend draws
+    // every day — label it the same way so the card matches the behaviour.
+    const mentionOnly = c.inclusion === "when_mentioned";
     card.innerHTML = `
       ${c.imageUrl ? `<img src="${c.imageUrl}" alt="${c.name}" class="char-thumb">` : '<div class="char-thumb-placeholder">📷</div>'}
       <div class="char-info">
         <span class="char-name">${c.name}</span>
         <span class="char-desc">${c.description || ""}</span>
+        <span class="char-inclusion-badge ${mentionOnly ? "is-guest" : "is-regular"}">
+          ${mentionOnly ? "when mentioned" : "every day"}
+        </span>
       </div>
     `;
     card.addEventListener("click", () => openCharacterModal(c));
     if (c.type === "kid") kidsGrid.appendChild(card);
     else extrasGrid.appendChild(card);
   });
+}
+
+// Aliases only feed name-matching, so they're dead weight for an everyday regular.
+function syncAliasesVisibility() {
+  const mentionOnly = $("#char-inclusion").value === "when_mentioned";
+  $("#aliases-group").style.display = mentionOnly ? "" : "none";
 }
 
 function openCharacterModal(existing) {
@@ -1379,6 +1391,12 @@ function openCharacterModal(existing) {
   $("#char-age").value = existing?.age || "";
   $("#char-birthday").value = existing?.birthday || "";
   $("#char-description").value = existing?.description || "";
+  // Characters saved before casting existed have no `inclusion` — the backend
+  // treats those as "always", so show that rather than silently changing them.
+  // New characters default to the library behaviour instead.
+  $("#char-inclusion").value = existing?.inclusion || (isEdit ? "always" : "when_mentioned");
+  $("#char-aliases").value = (existing?.aliases || []).join(", ");
+  syncAliasesVisibility();
   // Show gender, age, birthday for people, hide for extras
   const showPersonFields = (existing?.type || (isPerson ? "kid" : "extra")) === "kid";
   $("#gender-group").style.display = showPersonFields ? "" : "none";
@@ -1410,6 +1428,8 @@ $("#char-image").addEventListener("change", (e) => {
   }
 });
 
+$("#char-inclusion").addEventListener("change", syncAliasesVisibility);
+
 $("#modal-cancel").addEventListener("click", () =>
   $("#character-modal").close()
 );
@@ -1431,6 +1451,11 @@ $("#character-form").addEventListener("submit", async (e) => {
   const data = {
     name: $("#char-name").value.trim(),
     type: charType,
+    inclusion: $("#char-inclusion").value,
+    aliases: $("#char-aliases").value
+      .split(",")
+      .map((a) => a.trim())
+      .filter(Boolean),
     gender: $("#char-gender").value,
     age: $("#char-age").value ? parseInt($("#char-age").value, 10) : null,
     birthday: $("#char-birthday").value || null,

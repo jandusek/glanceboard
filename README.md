@@ -65,6 +65,7 @@ No soldering. No ribbon cables. Just one display and a server.
 - **Daily Nano Banana art** — Your calendar events become illustrated daily planners
 - **6 art styles** — Pen-and-ink, fashion sketch, watercolour, pixel art, comic book, and Japanese sumi-e
 - **Custom characters** — Add people and pets with reference photos for consistency
+- **Mention-based casting** — Keep a whole library of characters; each day only your regulars plus anyone your calendar actually names get drawn
 - **Drag-and-drop widgets** — Add sports scores, stock tickers, news, daily quotes, email digest, weather, and more to your display layout
 - **Google Calendar** — Connect via iCal URL (any calendar that exports iCal works)
 - **Weather-aware** — Shows weather on the display; characters dress for the actual conditions
@@ -116,6 +117,21 @@ Open [http://localhost:8000](http://localhost:8000) — the Glanceboard dashboar
 - **Location** — Set your timezone and location for weather
 - **Art style** — Choose from 6 styles
 - **Characters** — Add your family members and pets
+
+#### Who gets drawn each day
+
+Every character is either a **regular** or a **library character**:
+
+- **Every day** — the people the board is for. They appear in every illustration. Keep this to a handful.
+- **Only when mentioned** — everyone else. They stay out of the prompt until a calendar event names them, so "Playdate with Steve" pulls Steve into that day's scene and nobody else's.
+
+Because calendars rarely use the name you filed someone under, library characters take an **Also known as** list. Give Sarah the aliases `mom, mum` and "Trip with mom" will cast her. Matching is case-insensitive and whole-word, and it scans the event title, description, and location.
+
+A scene is capped at 5 characters. Regulars are never dropped — only extra mentioned characters are trimmed. Reference photos are sent to the model for the day's cast only, so a large library doesn't slow down or muddy every generation.
+
+Birthday countdowns are unaffected: those still track every character, whether or not they appear in the illustration.
+
+Characters saved before this feature keep appearing every day until you change them.
 
 ### 3. Set up the display
 

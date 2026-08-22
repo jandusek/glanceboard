@@ -1599,6 +1599,26 @@ select {
   gap: 2px;
 }
 
+.char-inclusion-badge {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.char-inclusion-badge.is-regular {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.char-inclusion-badge.is-guest {
+  color: var(--text-secondary);
+  background: var(--bg-input);
+}
+
 /* ─── Help Text Variants ────────────────────────────────────── */
 .help-text.success {
   color: var(--success);

@@ -1423,6 +1423,139 @@ def _get_aesthetic_info(aesthetic):
         }
 
 
+# ─── Character Casting ─────────────────────────────────────────
+
+# Ceiling on how many characters go into one illustration. Past about five the
+# model starts blending faces and losing the scene, and every character with a
+# photo also costs a reference image on the generation call.
+MAX_SCENE_CHARACTERS = 5
+
+
+def _character_inclusion(char):
+    """How a character earns a place in the scene: 'always' or 'when_mentioned'.
+
+    Records created before casting existed have no `inclusion` field. They
+    default to 'always' so upgrading never silently empties someone's scene.
+    """
+    value = str(char.get("inclusion") or "").strip().lower()
+    if value in ("always", "when_mentioned"):
+        return value
+    return "always"
+
+
+def _character_match_terms(char):
+    """Strings that pull a character into the scene: their name plus aliases.
+
+    Aliases are what let "Trip with mom" resolve to Sarah — a calendar rarely
+    uses the name we filed the character under.
+    """
+    terms = []
+    for term in [char.get("name")] + list(char.get("aliases") or []):
+        term = str(term or "").strip()
+        if term:
+            terms.append(term)
+    return terms
+
+
+def _event_search_text(event):
+    """The event text we scan for character names.
+
+    Deliberately the RAW summary rather than the humanized rewrite — the text
+    model is free to reword or drop a name, and a name lost there would
+    silently drop the character from the illustration.
+    """
+    parts = [event.get(key) for key in ("summary", "description", "location")]
+    return " ".join(str(p) for p in parts if p)
+
+
+def _mentions_term(text, term):
+    """Case-insensitive whole-word match, so "Al" doesn't match "Always"."""
+    pattern = r"(?<!\w)" + re.escape(term) + r"(?!\w)"
+    return re.search(pattern, text, re.IGNORECASE) is not None
+
+
+def _character_key(char):
+    return char.get("id") or char.get("name", "")
+
+
+def resolve_scene_characters(events, characters, max_characters=MAX_SCENE_CHARACTERS):
+    """Pick which characters belong in today's illustration.
+
+    'always' characters are the board's regulars — the people it is for — and
+    appear every day. Everyone else waits in the library until an event names
+    them, so "Playdate with Steve" casts Steve for the day and leaves the other
+    forty characters out of the prompt entirely.
+
+    Returns (cast, reasons): the character list, and a map of character key ->
+    the event summaries that pulled them in (absent for regulars). Regulars are
+    never dropped to satisfy max_characters — only guest slots are capped.
+    """
+    regulars = []
+    candidates = []
+    for char in characters:
+        if _character_inclusion(char) == "always":
+            regulars.append(char)
+        else:
+            candidates.append(char)
+
+    reasons = {}
+    guests = []
+    if candidates and events:
+        event_texts = [(ev, _event_search_text(ev)) for ev in events]
+        for char in candidates:
+            terms = _character_match_terms(char)
+            if not terms:
+                continue
+            matched = [
+                ev.get("summary", "")
+                for ev, text in event_texts
+                if any(_mentions_term(text, term) for term in terms)
+            ]
+            if matched:
+                guests.append(char)
+                reasons[_character_key(char)] = matched
+
+    # Regulars always make the cut; guests fill whatever room is left over.
+    room = max(0, max_characters - len(regulars))
+    if len(guests) > room:
+        print(
+            f"  🎭 {len(guests) - room} mentioned character(s) left out — "
+            f"scene cap is {max_characters}"
+        )
+        for char in guests[room:]:
+            reasons.pop(_character_key(char), None)
+        guests = guests[:room]
+
+    return regulars + guests, reasons
+
+
+def _describe_character(char, index, reasons):
+    """One numbered CHARACTERS line for the image prompt."""
+    name = char.get("name", "Person")
+
+    if char.get("type") == "kid":
+        gender = char.get("gender", "male")
+        age = char.get("age")
+        if gender == "male":
+            gender_word = "man" if (age and age >= 18) else "boy"
+        elif gender == "female":
+            gender_word = "woman" if (age and age >= 18) else "girl"
+        else:
+            gender_word = "person"
+        age_str = f", age {age}" if age else ""
+        desc = f"{index}) A {gender_word} named {name}{age_str}. {char.get('description', '')}"
+    else:
+        desc = f"{index}) {name}. {char.get('description', '')}"
+
+    # Telling the model WHY a guest is here lets it stage them doing the thing
+    # rather than lining everyone up facing forward.
+    matched = reasons.get(_character_key(char)) or []
+    if matched:
+        desc = f"{desc.rstrip()} — here today for: {'; '.join(matched[:2])}"
+
+    return desc
+
+
 def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
                  mode="today", banner_text=None, characters_enabled=True,
                  weather=None, birthdays=None, aesthetic="whimsical",
@@ -1612,34 +1745,21 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
     if birthday_text:
         event_list_str += f"\n\n{birthday_text}"
 
-    # Characters
+    # Characters — only the day's cast, not the whole library
     char_section = ""
+    cast, cast_reasons = ([], {})
     if characters_enabled and characters:
-        people = [c for c in characters if c.get("type") == "kid"]
-        extras = [c for c in characters if c.get("type") == "extra"]
+        cast, cast_reasons = resolve_scene_characters(events, characters)
 
-        char_descs = []
-        for i, person in enumerate(people):
-            # Build age/gender description
-            gender = person.get("gender", "male")
-            age = person.get("age")
-            name = person.get("name", "Person")
+    if cast:
+        # People first, then pets/toys/objects, matching the old prompt shape.
+        people = [c for c in cast if c.get("type") == "kid"]
+        extras = [c for c in cast if c.get("type") != "kid"]
 
-            if gender == "male":
-                gender_word = "man" if (age and age >= 18) else "boy"
-            elif gender == "female":
-                gender_word = "woman" if (age and age >= 18) else "girl"
-            else:
-                gender_word = "person"
-
-            age_str = f", age {age}" if age else ""
-            desc = (
-                f"{i+1}) A {gender_word} named {name}{age_str}. "
-                f"{person.get('description', '')}"
-            )
-            char_descs.append(desc)
-        for i, extra in enumerate(extras):
-            char_descs.append(f"{len(people)+i+1}) {extra['name']}. {extra.get('description', '')}")
+        char_descs = [
+            _describe_character(char, i + 1, cast_reasons)
+            for i, char in enumerate(people + extras)
+        ]
 
         all_chars = "\n".join(char_descs)
 
@@ -1707,7 +1827,8 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
         char_section = (
             f"\n\nCHARACTERS (in the scene {char_area}): "
             f"Show these characters in the scene. Incorporate the day's activities "
-            f"into the illustration when relevant and appropriate."
+            f"into the illustration when relevant and appropriate. "
+            f"Draw ONLY the characters listed below — do not add any other people."
             f"{clothing_note}"
             f"\nCHARACTERS:\n{all_chars}"
         )
@@ -2298,10 +2419,14 @@ def _generate_for_device(config: dict, force: bool = False):
         latitude=latitude,
     )
 
-    # Collect reference images
+    # Collect reference images — only for the characters actually in the scene,
+    # so a large library doesn't attach dozens of photos to every generation.
     reference_urls = []
     if characters_enabled:
-        for char in characters:
+        cast, _ = resolve_scene_characters(events, characters)
+        cast_names = ", ".join(c.get("name", "?") for c in cast) or "(nobody)"
+        print(f"  🎭 Today's cast: {cast_names}")
+        for char in cast:
             if char.get("imageUrl"):
                 reference_urls.append(char["imageUrl"])
 
@@ -2780,10 +2905,13 @@ def preview_prompt():
         latitude=latitude,
     )
 
+    scene_cast, _ = resolve_scene_characters(events, characters) if characters_enabled else ([], {})
+
     return {
         "prompt": prompt,
         "events": events,
         "characters_count": len(characters),
+        "scene_characters": [c.get("name", "") for c in scene_cast],
         "weather": weather,
     }
 
