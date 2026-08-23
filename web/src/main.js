@@ -382,6 +382,28 @@ function updateApiHelp(providerSelect, helpEl, inputEl) {
  * Google AI Studio → only Google models.
  * OpenRouter → all models (it proxies multiple providers).
  */
+// Assigning a <select> a value that matches none of its options silently
+// leaves it blank — and the next auto-save then writes that blank back over a
+// perfectly good stored setting. Keep hand-edited or newer model ids
+// selectable by adding them as an option instead. Appended to the select
+// rather than an optgroup so filterModelsByProvider never disables them.
+function setSelectValue(sel, value) {
+  if (!sel || !value) return;
+  sel.value = value;
+  if (sel.value === value) return;
+  // Tolerate the provider prefix being present or absent: app.py accepts
+  // "gemini-3.1-flash-lite-image" and "google/gemini-3.1-flash-lite-image"
+  // alike, so a config.json edited by hand shouldn't miss the option.
+  const alt = value.startsWith("google/") ? value.slice("google/".length) : `google/${value}`;
+  sel.value = alt;
+  if (sel.value === alt) return;
+  const opt = document.createElement("option");
+  opt.value = value;
+  opt.textContent = `${value} (from config)`;
+  sel.appendChild(opt);
+  sel.value = value;
+}
+
 function filterModelsByProvider(provider) {
   const modelSelect = $("#setting-model");
   if (!modelSelect) return;
@@ -1654,10 +1676,10 @@ async function loadSettings() {
 
   // Device-level fields — load dynamic models, set value, THEN filter by provider
   await loadDynamicModels();
-  $("#setting-model").value = d.image_model || c.image_model || "google/gemini-3-pro-image";
+  setSelectValue($("#setting-model"), d.image_model || c.image_model || "google/gemini-3-pro-image");
   filterModelsByProvider(provider);
   // Set text model
-  $("#setting-text-model").value = d.text_model || c.text_model || "gemini-flash-latest";
+  setSelectValue($("#setting-text-model"), d.text_model || c.text_model || "gemini-flash-latest");
   // Set aesthetic radio button
   const aestheticVal = d.aesthetic || c.aesthetic || "whimsical";
   const isBuiltIn = document.querySelector(`input[name="aesthetic"][value="${aestheticVal}"]`);
@@ -1855,8 +1877,13 @@ async function doSaveSettings() {
   };
 
   // Device-level settings (per display)
+  const imageModel = $("#setting-model").value;
+  if (!imageModel) {
+    // Belt and braces alongside setSelectValue: never post a blank model.
+    console.warn("Image model select is blank — leaving the stored value alone");
+  }
   const deviceConfig = {
-    image_model: $("#setting-model").value,
+    ...(imageModel ? { image_model: imageModel } : {}),
     text_model: $("#setting-text-model").value,
     aesthetic: (() => {
       const sel = document.querySelector('input[name="aesthetic"]:checked')?.value || "whimsical";

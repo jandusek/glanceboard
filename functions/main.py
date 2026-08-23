@@ -1330,6 +1330,19 @@ def generate_image_via_google_ai(prompt, api_key, model="gemini-3-pro-image", re
 
     Uses the generateContent endpoint with responseModalities=["IMAGE", "TEXT"].
     """
+    if not model:
+        print("  \u274c No image model configured — set 'image_model'")
+        return None
+
+    if "image" not in model:
+        # Only the *-image models can return an IMAGE part. A text model answers
+        # 200 with a text-only candidate, which used to surface as three rounds
+        # of "No image in Gemini response" and a bare 500.
+        print(f"  \u274c '{model}' is a text model and cannot generate images — "
+              f"set 'image_model' to an image model (e.g. gemini-3-pro-image). "
+              f"Text models belong in 'text_model'.")
+        return None
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
     # Build content parts
@@ -1385,11 +1398,32 @@ def generate_image_via_google_ai(prompt, api_key, model="gemini-3-pro-image", re
                     if "inline_data" in part:
                         return base64.b64decode(part["inline_data"]["data"])
 
-            print(f"No image in Gemini response (attempt {attempt+1})")
+            print(f"No image in Gemini response (attempt {attempt+1}): "
+                  f"{_describe_imageless_response(result)}")
         except Exception as e:
             print(f"Gemini image generation error (attempt {attempt+1}): {e}")
 
     return None
+
+
+def _describe_imageless_response(result):
+    """Summarise why a 200 response carried no image, for the log line."""
+    bits = []
+    feedback = result.get("promptFeedback", {})
+    if feedback.get("blockReason"):
+        bits.append(f"blockReason={feedback['blockReason']}")
+    for candidate in result.get("candidates", []):
+        if candidate.get("finishReason"):
+            bits.append(f"finishReason={candidate['finishReason']}")
+        text = " ".join(
+            part["text"] for part in candidate.get("content", {}).get("parts", [])
+            if part.get("text")
+        ).strip()
+        if text:
+            bits.append(f"text={text[:200]!r}")
+    if not result.get("candidates"):
+        bits.append("no candidates")
+    return ", ".join(bits) or "empty response"
 
 
 # ─── Image Processing ───────────────────────────────────────────
@@ -2509,6 +2543,12 @@ GOOGLE_CURATED_MODELS = [
     {
         "id": "google/gemini-3.1-flash-image",
         "name": "Nano Banana 2 — Gemini 3.1 Flash",
+        "provider": "Google",
+        "group": "Google (Gemini)",
+    },
+    {
+        "id": "google/gemini-3.1-flash-lite-image",
+        "name": "Nano Banana 2 Lite — Gemini 3.1 Flash Lite",
         "provider": "Google",
         "group": "Google (Gemini)",
     },

@@ -2115,6 +2115,15 @@ def generate_image_via_google_ai(prompt, api_key, model="gemini-3-pro-image", re
         print("  \u274c No image model configured — set 'image_model' in data/config.json")
         return None
 
+    if "image" not in model:
+        # Only the *-image models can return an IMAGE part. A text model answers
+        # 200 with a text-only candidate, which used to surface as three rounds
+        # of "No image in Gemini response" and a bare 500.
+        print(f"  \u274c '{model}' is a text model and cannot generate images — "
+              f"set 'image_model' to an image model (e.g. gemini-3-pro-image). "
+              f"Text models belong in 'text_model'.")
+        return None
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
     # Build content parts
@@ -2195,11 +2204,32 @@ def generate_image_via_google_ai(prompt, api_key, model="gemini-3-pro-image", re
                             pass
                         return data
 
-            print(f"No image in Gemini response (attempt {attempt+1})")
+            print(f"No image in Gemini response (attempt {attempt+1}): "
+                  f"{_describe_imageless_response(result)}")
         except Exception as e:
             print(f"Gemini image generation error (attempt {attempt+1}): {e}")
 
     return None
+
+
+def _describe_imageless_response(result):
+    """Summarise why a 200 response carried no image, for the log line."""
+    bits = []
+    feedback = result.get("promptFeedback", {})
+    if feedback.get("blockReason"):
+        bits.append(f"blockReason={feedback['blockReason']}")
+    for candidate in result.get("candidates", []):
+        if candidate.get("finishReason"):
+            bits.append(f"finishReason={candidate['finishReason']}")
+        text = " ".join(
+            part["text"] for part in candidate.get("content", {}).get("parts", [])
+            if part.get("text")
+        ).strip()
+        if text:
+            bits.append(f"text={text[:200]!r}")
+    if not result.get("candidates"):
+        bits.append("no candidates")
+    return ", ".join(bits) or "empty response"
 
 
 # ─── Image Processing ───────────────────────────────────────────
@@ -2534,6 +2564,22 @@ def save_config(config_data):
                 except Exception:
                     pass
 
+
+def _persist_generation_state(config):
+    """Write back only the keys a generation run mutates.
+
+    _generate_for_device works on a snapshot taken before a run that can last
+    several minutes. Saving that whole snapshot back would revert any setting
+    changed in the dashboard meanwhile, and silently drop keys added during the
+    run — which is how image_model can vanish from config.json entirely.
+    """
+    latest = load_config() or config
+    for key in ("status", "location_name"):
+        if key in config:
+            latest[key] = config[key]
+    save_config(latest)
+
+
 @app.get("/api/server-info")
 def get_server_info(request: Request):
     """Return the server's local network IP for device configuration."""
@@ -2586,6 +2632,14 @@ def get_config():
 def update_config(config: dict):
     # merge with existing
     existing = load_config()
+    # A model <select> holding a value that matches none of its options renders
+    # blank, and the dashboard's auto-save then posts "" over a working model.
+    # An empty model name is never meaningful, so never let one clobber a good.
+    for key in ("image_model", "text_model"):
+        if key in config and not str(config[key] or "").strip() and existing.get(key):
+            print(f"⚠️ Ignoring empty {key} in config update "
+                  f"(keeping {existing[key]!r})")
+            config.pop(key)
     existing.update(config)
     save_config(existing)
     return {"status": "success"}
@@ -2713,7 +2767,7 @@ def generate_now(force: bool = False):
     
     if result and result.get("success"):
         # save updated status
-        save_config(config)
+        _persist_generation_state(config)
         return result
     elif result and result.get("skipped"):
         return result
@@ -2958,7 +3012,7 @@ def scheduled_task():
             completed_slots.append(slot_key)
             status_dict["completed_slots"] = completed_slots
             config["status"] = status_dict
-            save_config(config)
+            _persist_generation_state(config)
             print(f"Scheduled generation success or skipped")
     except Exception as e:
         print(f"Scheduled generation failed: {e}")
