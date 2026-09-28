@@ -705,7 +705,6 @@ TOP: A ribbon banner reads: '{{BANNER_TEXT}}' in bold hand-drawn block letters.
 RIGHT SIDE ({{RIGHT_WIDTH}}) — MAIN SCENE:
 {{CHARACTERS}}
 
-BOTTOM LEFT CORNER — WEATHER:
 {{WEATHER}}
 
 {{COUNTDOWN}}
@@ -734,7 +733,6 @@ TOP: An elegant hand-lettered header reads: '{{BANNER_TEXT}}'.
 RIGHT SIDE ({{RIGHT_WIDTH}}) — MAIN SCENE:
 {{CHARACTERS}}
 
-BOTTOM LEFT CORNER — WEATHER:
 {{WEATHER}}
 
 {{COUNTDOWN}}
@@ -1250,7 +1248,7 @@ function buildPrompt(events, characters, promptTemplate, opts = {}) {
     .replace('{{DAY_NAME}}', dayName).replace('{{BANNER_TEXT}}', banner).replace('{{SCENE_DESCRIPTION}}', scene)
     .replace('{{SEASON}}', rawSeason).replace('{{TEXT_LAYOUT}}', textLayout).replace('{{RIGHT_WIDTH}}', rightWidth)
     .replace('{{EVENT_LIST}}', eventListStr).replace('{{CHARACTERS}}', charSection)
-    .replace('{{WEATHER}}', weatherSection).replace('{{COUNTDOWN}}', countdownText)
+    .replace('{{WEATHER}}', weatherSection ? `BOTTOM LEFT CORNER — WEATHER:\n${weatherSection}` : '').replace('{{COUNTDOWN}}', countdownText)
     .replace('{{REGION_GUIDANCE}}', regionGuidance).replace('{{BIRTHDAY}}', '').replace('{{MODE}}', mode);
 }
 

@@ -1528,18 +1528,14 @@ TOP: A ribbon banner reads: '{{BANNER_TEXT}}' in bold hand-drawn block letters. 
 
 LEFT SIDE (roughly 40% width) — TEXT OVERLAY:
 Overlaid on top of the left portion of the scene, write a clear readable handwritten-style list of the day's schedule. The text sits in the FOREGROUND on top of the illustration, but the scene continues behind and around it — you might see trees, sky, a wall, or background details peeking around the edges. Keep the area behind the text relatively uncluttered so it stays legible.
-Each event on its own line with a bullet, time, and name.
-Events to show:
 {{EVENT_LIST}}
 
 RIGHT SIDE (roughly 60% width) — MAIN SCENE:
 This is where the main action and characters are. The illustration flows naturally from the left side but the main focal point (characters, action) is on the right so it doesn't compete with the text.
 {{CHARACTERS}}
 
-BOTTOM LEFT CORNER — WEATHER:
 {{WEATHER}}
 
-BOTTOM RIGHT CORNER — COUNTDOWN:
 {{COUNTDOWN}}
 
 STYLE RULES: Pen-and-ink illustration, warm parchment background, hand-drawn crosshatching, charming and whimsical.
@@ -1558,16 +1554,13 @@ The ENTIRE image is a single elegant fashion illustration depicting a {{SEASON}}
 TOP: An elegant hand-lettered header reads: '{{BANNER_TEXT}}' in stylish calligraphic or modern serif letters. Keep it well below the top edge.
 
 LEFT SIDE (roughly 40% width) — TEXT OVERLAY:
-Events to show:
 {{EVENT_LIST}}
 
 RIGHT SIDE (roughly 60% width) — MAIN SCENE:
 {{CHARACTERS}}
 
-BOTTOM LEFT CORNER — WEATHER:
 {{WEATHER}}
 
-BOTTOM RIGHT CORNER — COUNTDOWN:
 {{COUNTDOWN}}
 
 STYLE RULES: Fashion illustration / editorial sketch style. Confident loose ink lines, watercolor washes.

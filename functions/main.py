@@ -89,21 +89,6 @@ EINK_PALETTE = np.array([
     [230, 200, 0],      # Yellow
 ], dtype=np.float64)
 
-BACKUP_QUOTES = [
-    "Be kind to everyone you meet today!",
-    "Today is a great day to learn something new!",
-    "You are brave and wonderful!",
-    "What adventure will you find today?",
-    "Read a book, change the world! 📚",
-    "Smile at someone today — it's contagious!",
-    "Try something you've never done before!",
-    "Be a good friend today!",
-    "The world is better because you're in it!",
-    "Every day is a chance to be awesome!",
-    "Kindness is a superpower — use it!",
-    "Dream big, start small, act now!",
-]
-
 # Weather condition code mapping (WMO codes from Open-Meteo)
 WMO_WEATHER_CODES = {
     0: ("Clear sky", "☀️"),
@@ -153,7 +138,6 @@ RIGHT SIDE ({{RIGHT_WIDTH}}) — MAIN SCENE:
 This is where the main action and characters are. The illustration flows naturally from the left side but the main focal point (characters, action) is on the right so it doesn't compete with the text.
 {{CHARACTERS}}
 
-BOTTOM LEFT CORNER — WEATHER:
 {{WEATHER}}
 
 {{COUNTDOWN}}
@@ -184,7 +168,6 @@ RIGHT SIDE ({{RIGHT_WIDTH}}) — MAIN SCENE:
 This is the focal point. Show the characters in a scene related to the day's events, rendered in fashion illustration style — elongated proportions, confident ink lines, watercolor washes in muted tones, editorial poses. Think Garance Doré, Inslee Haynes, or Jason Brooks style illustration.
 {{CHARACTERS}}
 
-BOTTOM LEFT CORNER — WEATHER:
 {{WEATHER}}
 
 {{COUNTDOWN}}
@@ -1060,8 +1043,14 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
                 if ev.get("location"):
                     item += f" ({ev['location']})"
             event_list_items.append(item)
+        event_list_str = (
+            "Each event on its own line with a bullet.\n"
+            "Events to show:\n" + "\n".join(event_list_items)
+        )
     else:
-        # Weather-only mode (no calendar) — show daily inspiration instead
+        # No events today — show the standing daily routine plus an
+        # inspirational note. Spell out that there is no schedule, otherwise
+        # the image model pads the list with invented events.
         inspiration_messages = [
             "Take a moment to enjoy the weather today! 🌤️",
             "A great day for something new! ✨",
@@ -1072,10 +1061,17 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
             "Fresh air and good vibes today! 🍃",
             "Today is full of possibilities! 🚀",
         ]
-        event_list_items.append(f"• {random.choice(inspiration_messages)}")
+        event_list_items = [
+            "• 📝 Homework & practice piano",
+            f"• {random.choice(inspiration_messages)}",
+        ]
+        event_list_str = (
+            "There are NO calendar events today. Write these two bulleted lines. "
+            "Do NOT invent, add, or imply any other schedule items, times, "
+            "or activities.\n" + "\n".join(event_list_items)
+        )
 
     event_count = len(event_list_items)
-    event_list_str = "\n".join(event_list_items)
 
     # ─── Countdowns (birthdays + holidays) ───────────────────────
     today = now.date()
@@ -1209,6 +1205,7 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
         weather_badge = f"{emoji} {temp}{unit} {condition}"
 
         weather_section = (
+            f"BOTTOM LEFT CORNER — WEATHER:\n"
             f"In the BOTTOM LEFT corner of the image, draw a small weather badge or "
             f"banner in a clear, readable hand-drawn style. It should read: "
             f"'{weather_badge}'. Make it small but legible — like a little weather "
@@ -1248,11 +1245,6 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
             "Keep the area behind the text relatively uncluttered so it stays legible."
         )
         right_width = "roughly 60% width"
-
-    text_layout += (
-        "\nEach event on its own line with a bullet.\n"
-        "Events to show:\n"
-    )
 
     # Build final prompt — choose template based on aesthetic
     if prompt_template and prompt_template.strip():
