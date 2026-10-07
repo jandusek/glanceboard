@@ -1554,12 +1554,43 @@ def _describe_character(char, index, reasons):
     return desc
 
 
+# ─── Default Daily Routine ──────────────────────────────────────
+
+# Shown on days with no calendar events, alongside an inspirational note.
+# Configurable per display; an empty string means "no routine, just the note".
+DEFAULT_ROUTINE_WEEKDAY = "📝 Homework & practice piano"
+DEFAULT_ROUTINE_WEEKEND = "🎹 Practice piano & tidy your room"
+
+INSPIRATION_MESSAGES = [
+    "Take a moment to enjoy the weather today! 🌤️",
+    "A great day for something new! ✨",
+    "Make someone smile today! 😊",
+    "Enjoy the little things today! 💛",
+    "A perfect day to explore! 🌿",
+    "Be curious, be kind! 🌈",
+    "Fresh air and good vibes today! 🍃",
+    "Today is full of possibilities! 🚀",
+]
+
+
+def empty_day_items(day, routine_weekday, routine_weekend, inspiration):
+    """Bullet lines for a day with no events: the routine for that kind of
+    day (if set), then the inspirational note."""
+    routine = routine_weekend if day.weekday() >= 5 else routine_weekday
+    routine = (routine or "").strip()
+    items = [f"• {routine}"] if routine else []
+    items.append(f"• {inspiration}")
+    return items
+
+
 def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
                  mode="today", banner_text=None, characters_enabled=True,
                  weather=None, birthdays=None, aesthetic="whimsical",
                  scene_description="", important_events=None,
                  location_name="", layout_placements=None, widget_configs=None,
-                 widget_data=None, latitude=None):
+                 widget_data=None, latitude=None,
+                 routine_weekday=DEFAULT_ROUTINE_WEEKDAY,
+                 routine_weekend=DEFAULT_ROUTINE_WEEKEND):
     """
     Build the image generation prompt from events + characters + weather + countdowns.
     """
@@ -1651,25 +1682,16 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
             "Events to show:\n" + "\n".join(event_list_items)
         )
     else:
-        # No events today — show the standing daily routine plus an
+        # No events today — show the standing daily routine (if any) plus an
         # inspirational note. Spell out that there is no schedule, otherwise
         # the image model pads the list with invented events.
-        inspiration_messages = [
-            "Take a moment to enjoy the weather today! 🌤️",
-            "A great day for something new! ✨",
-            "Make someone smile today! 😊",
-            "Enjoy the little things today! 💛",
-            "A perfect day to explore! 🌿",
-            "Be curious, be kind! 🌈",
-            "Fresh air and good vibes today! 🍃",
-            "Today is full of possibilities! 🚀",
-        ]
-        event_list_items = [
-            "• 📝 Homework & practice piano",
-            f"• {random.choice(inspiration_messages)}",
-        ]
+        event_list_items = empty_day_items(
+            now, routine_weekday, routine_weekend,
+            random.choice(INSPIRATION_MESSAGES),
+        )
+        line_word = "this bulleted line" if len(event_list_items) == 1 else "these bulleted lines"
         event_list_str = (
-            "There are NO calendar events today. Write these two bulleted lines. "
+            f"There are NO calendar events today. Write {line_word}. "
             "Do NOT invent, add, or imply any other schedule items, times, "
             "or activities.\n" + "\n".join(event_list_items)
         )
@@ -2444,6 +2466,8 @@ def _generate_for_device(config: dict, force: bool = False):
         timezone=timezone, mode=mode,
         banner_text=banner_text,
         characters_enabled=characters_enabled,
+        routine_weekday=config.get("default_routine_weekday", DEFAULT_ROUTINE_WEEKDAY),
+        routine_weekend=config.get("default_routine_weekend", DEFAULT_ROUTINE_WEEKEND),
         weather=weather,
         birthdays=birthdays,
         aesthetic=aesthetic,
@@ -2958,6 +2982,8 @@ def preview_prompt():
         timezone=timezone, mode=mode,
         banner_text=banner_text,
         characters_enabled=characters_enabled,
+        routine_weekday=config.get("default_routine_weekday", DEFAULT_ROUTINE_WEEKDAY),
+        routine_weekend=config.get("default_routine_weekend", DEFAULT_ROUTINE_WEEKEND),
         weather=weather,
         birthdays=[],
         layout_placements=layout_placements,

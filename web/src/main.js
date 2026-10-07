@@ -25,6 +25,10 @@
 
 import { DEFAULT_TIMEZONE } from "./config.js";
 
+// Shown on days with no calendar events; keep in sync with server/app.py
+const DEFAULT_ROUTINE_WEEKDAY = "📝 Homework & practice piano";
+const DEFAULT_ROUTINE_WEEKEND = "🎹 Practice piano & tidy your room";
+
 const app = {};
 const auth = { currentUser: { uid: "local" } };
 const db = {};
@@ -77,6 +81,8 @@ async function getDoc(docRef) {
       image_model: _localConfig.image_model || "google/gemini-3-pro-image",
       aesthetic: _localConfig.aesthetic || "whimsical",
       characters_enabled: _localConfig.characters_enabled !== false,
+      default_routine_weekday: _localConfig.default_routine_weekday,
+      default_routine_weekend: _localConfig.default_routine_weekend,
       selected_characters: _localConfig.selected_characters || [],
     };
   } else if (path.includes("account") || path.includes("config") || path.includes("settings")) {
@@ -1687,6 +1693,9 @@ async function loadSettings() {
     $("#custom-aesthetic-group")?.classList.remove("hidden");
   }
   $("#setting-characters").checked = (d.characters_enabled !== undefined ? d.characters_enabled : c.characters_enabled) !== false;
+  // Never-saved → default; saved "" → deliberately blank (message only)
+  $("#setting-routine-weekday").value = d.default_routine_weekday ?? c.default_routine_weekday ?? DEFAULT_ROUTINE_WEEKDAY;
+  $("#setting-routine-weekend").value = d.default_routine_weekend ?? c.default_routine_weekend ?? DEFAULT_ROUTINE_WEEKEND;
 
   // Temp unit radio (user-level)
   const tempUnit = c.temp_unit || "celsius";
@@ -1884,6 +1893,8 @@ async function doSaveSettings() {
       return sel;
     })(),
     characters_enabled: $("#setting-characters").checked,
+    default_routine_weekday: $("#setting-routine-weekday").value.trim(),
+    default_routine_weekend: $("#setting-routine-weekend").value.trim(),
   };
 
   // iCal URL (user-level, saved to config)
@@ -1935,7 +1946,7 @@ $("#save-settings-btn")?.addEventListener("click", () => doSaveSettings());
   $(sel)?.addEventListener("change", settingsAutoSave);
 });
 // Text inputs — debounce on input
-["#setting-api-key", "#setting-ical-url"].forEach(sel => {
+["#setting-api-key", "#setting-ical-url", "#setting-routine-weekday", "#setting-routine-weekend"].forEach(sel => {
   $(sel)?.addEventListener("input", settingsAutoSave);
 });
 // Aesthetic radio buttons

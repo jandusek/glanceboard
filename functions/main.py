@@ -965,11 +965,42 @@ def _describe_character(char, index, reasons):
     return desc
 
 
+# ─── Default Daily Routine ──────────────────────────────────────
+
+# Shown on days with no calendar events, alongside an inspirational note.
+# Configurable per display; an empty string means "no routine, just the note".
+DEFAULT_ROUTINE_WEEKDAY = "📝 Homework & practice piano"
+DEFAULT_ROUTINE_WEEKEND = "🎹 Practice piano & tidy your room"
+
+INSPIRATION_MESSAGES = [
+    "Take a moment to enjoy the weather today! 🌤️",
+    "A great day for something new! ✨",
+    "Make someone smile today! 😊",
+    "Enjoy the little things today! 💛",
+    "A perfect day to explore! 🌿",
+    "Be curious, be kind! 🌈",
+    "Fresh air and good vibes today! 🍃",
+    "Today is full of possibilities! 🚀",
+]
+
+
+def empty_day_items(day, routine_weekday, routine_weekend, inspiration):
+    """Bullet lines for a day with no events: the routine for that kind of
+    day (if set), then the inspirational note."""
+    routine = routine_weekend if day.weekday() >= 5 else routine_weekday
+    routine = (routine or "").strip()
+    items = [f"• {routine}"] if routine else []
+    items.append(f"• {inspiration}")
+    return items
+
+
 def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
                  mode="today", banner_text=None, characters_enabled=True,
                  weather=None, birthdays=None, aesthetic="whimsical",
                  scene_description="", important_events=None,
-                 location_name=""):
+                 location_name="",
+                 routine_weekday=DEFAULT_ROUTINE_WEEKDAY,
+                 routine_weekend=DEFAULT_ROUTINE_WEEKEND):
     """
     Build the image generation prompt from events + characters + weather + countdowns.
     """
@@ -1048,25 +1079,16 @@ def build_prompt(events, characters, prompt_template, timezone=DEFAULT_TIMEZONE,
             "Events to show:\n" + "\n".join(event_list_items)
         )
     else:
-        # No events today — show the standing daily routine plus an
+        # No events today — show the standing daily routine (if any) plus an
         # inspirational note. Spell out that there is no schedule, otherwise
         # the image model pads the list with invented events.
-        inspiration_messages = [
-            "Take a moment to enjoy the weather today! 🌤️",
-            "A great day for something new! ✨",
-            "Make someone smile today! 😊",
-            "Enjoy the little things today! 💛",
-            "A perfect day to explore! 🌿",
-            "Be curious, be kind! 🌈",
-            "Fresh air and good vibes today! 🍃",
-            "Today is full of possibilities! 🚀",
-        ]
-        event_list_items = [
-            "• 📝 Homework & practice piano",
-            f"• {random.choice(inspiration_messages)}",
-        ]
+        event_list_items = empty_day_items(
+            now, routine_weekday, routine_weekend,
+            random.choice(INSPIRATION_MESSAGES),
+        )
+        line_word = "this bulleted line" if len(event_list_items) == 1 else "these bulleted lines"
         event_list_str = (
-            "There are NO calendar events today. Write these two bulleted lines. "
+            f"There are NO calendar events today. Write {line_word}. "
             "Do NOT invent, add, or imply any other schedule items, times, "
             "or activities.\n" + "\n".join(event_list_items)
         )
@@ -1326,10 +1348,11 @@ def generate_image_via_google_ai(prompt, api_key, model="gemini-3-pro-image", re
         print("  \u274c No image model configured — set 'image_model'")
         return None
 
-    if "image" not in model:
-        # Only the *-image models can return an IMAGE part. A text model answers
-        # 200 with a text-only candidate, which used to surface as three rounds
-        # of "No image in Gemini response" and a bare 500.
+    if "image" not in model and "nano-banana" not in model:
+        # Only image models (*-image, gemini-nano-banana-*) can return an IMAGE
+        # part. A text model answers 200 with a text-only candidate, which used
+        # to surface as three rounds of "No image in Gemini response" and a
+        # bare 500.
         print(f"  \u274c '{model}' is a text model and cannot generate images — "
               f"set 'image_model' to an image model (e.g. gemini-3-pro-image). "
               f"Text models belong in 'text_model'.")
@@ -1665,6 +1688,8 @@ def _generate_for_device(uid, device_id, db, force=False):
         timezone=timezone, mode=mode,
         banner_text=banner_text,
         characters_enabled=characters_enabled,
+        routine_weekday=device.get("default_routine_weekday", DEFAULT_ROUTINE_WEEKDAY),
+        routine_weekend=device.get("default_routine_weekend", DEFAULT_ROUTINE_WEEKEND),
         weather=weather,
         birthdays=birthdays,
         aesthetic=aesthetic,
@@ -1997,6 +2022,8 @@ def preview_prompt(req: https_fn.CallableRequest):
         events, characters, prompt_template,
         timezone=timezone, mode=mode,
         characters_enabled=characters_enabled,
+        routine_weekday=device.get("default_routine_weekday", DEFAULT_ROUTINE_WEEKDAY),
+        routine_weekend=device.get("default_routine_weekend", DEFAULT_ROUTINE_WEEKEND),
         weather=weather,
         birthdays=birthdays,
     )
@@ -2392,6 +2419,7 @@ def migrate_to_devices(req: https_fn.CallableRequest):
     ]
     device_fields = [
         "image_model", "characters_enabled", "calendar_id", "aesthetic",
+        "default_routine_weekday", "default_routine_weekend",
     ]
 
     account_data = {k: config[k] for k in user_fields if k in config}
@@ -2541,6 +2569,12 @@ GOOGLE_CURATED_MODELS = [
     {
         "id": "google/gemini-3.1-flash-lite-image",
         "name": "Nano Banana 2 Lite — Gemini 3.1 Flash Lite",
+        "provider": "Google",
+        "group": "Google (Gemini)",
+    },
+    {
+        "id": "google/gemini-nano-banana-2.1",
+        "name": "Nano Banana 2.1 — Gemini 3.6 Flash",
         "provider": "Google",
         "group": "Google (Gemini)",
     },
