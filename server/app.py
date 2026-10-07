@@ -2144,10 +2144,11 @@ def generate_image_via_google_ai(prompt, api_key, model="gemini-3-pro-image", re
         print("  \u274c No image model configured — set 'image_model' in data/config.json")
         return None
 
-    if "image" not in model:
-        # Only the *-image models can return an IMAGE part. A text model answers
-        # 200 with a text-only candidate, which used to surface as three rounds
-        # of "No image in Gemini response" and a bare 500.
+    if "image" not in model and "nano-banana" not in model:
+        # Only image models (*-image, gemini-nano-banana-*) can return an IMAGE
+        # part. A text model answers 200 with a text-only candidate, which used
+        # to surface as three rounds of "No image in Gemini response" and a
+        # bare 500.
         print(f"  \u274c '{model}' is a text model and cannot generate images — "
               f"set 'image_model' to an image model (e.g. gemini-3-pro-image). "
               f"Text models belong in 'text_model'.")
