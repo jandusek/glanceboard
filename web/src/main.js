@@ -81,6 +81,7 @@ async function getDoc(docRef) {
       image_model: _localConfig.image_model || "google/gemini-3-pro-image",
       aesthetic: _localConfig.aesthetic || "whimsical",
       characters_enabled: _localConfig.characters_enabled !== false,
+      battery_indicator: _localConfig.battery_indicator === true,
       default_routine_weekday: _localConfig.default_routine_weekday,
       default_routine_weekend: _localConfig.default_routine_weekend,
       selected_characters: _localConfig.selected_characters || [],
@@ -1693,6 +1694,7 @@ async function loadSettings() {
     $("#custom-aesthetic-group")?.classList.remove("hidden");
   }
   $("#setting-characters").checked = (d.characters_enabled !== undefined ? d.characters_enabled : c.characters_enabled) !== false;
+  $("#setting-battery-indicator").checked = (d.battery_indicator !== undefined ? d.battery_indicator : c.battery_indicator) === true;
   // Never-saved → default; saved "" → deliberately blank (message only)
   $("#setting-routine-weekday").value = d.default_routine_weekday ?? c.default_routine_weekday ?? DEFAULT_ROUTINE_WEEKDAY;
   $("#setting-routine-weekend").value = d.default_routine_weekend ?? c.default_routine_weekend ?? DEFAULT_ROUTINE_WEEKEND;
@@ -1893,6 +1895,7 @@ async function doSaveSettings() {
       return sel;
     })(),
     characters_enabled: $("#setting-characters").checked,
+    battery_indicator: $("#setting-battery-indicator").checked,
     default_routine_weekday: $("#setting-routine-weekday").value.trim(),
     default_routine_weekend: $("#setting-routine-weekend").value.trim(),
   };
@@ -1942,7 +1945,7 @@ $("#save-settings-btn")?.addEventListener("click", () => doSaveSettings());
 
 // Auto-save on settings changes
 ["#setting-api-provider", "#setting-model", "#setting-text-model", "#setting-timezone",
- "#setting-characters", "#email-scan-enabled"].forEach(sel => {
+ "#setting-characters", "#setting-battery-indicator", "#email-scan-enabled"].forEach(sel => {
   $(sel)?.addEventListener("change", settingsAutoSave);
 });
 // Text inputs — debounce on input

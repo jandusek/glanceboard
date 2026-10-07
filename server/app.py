@@ -2319,6 +2319,39 @@ def resize_and_dither(img_bytes):
     return full_color_bytes, dithered_bytes
 
 
+# ─── Battery Indicator ──────────────────────────────────────────
+
+BATTERY_LINE_WIDTH = 1
+BATTERY_LINE_COLOR = (0, 0, 0)  # Black, an exact palette entry so it survives raw packing
+
+
+def parse_battery_percentage(value):
+    """Parse the firmware's X-Battery-Percentage header; None if absent or bogus."""
+    try:
+        pct = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return pct if 0 <= pct <= 100 else None
+
+
+def draw_battery_line(img, pct):
+    """Burn a battery gauge into the right edge of img, in place.
+
+    A BATTERY_LINE_WIDTH-wide line rises from the bottom edge: full height at
+    100%, nothing at 0%.
+    """
+    from PIL import ImageDraw
+
+    height = round(img.height * pct / 100)
+    if height <= 0:
+        return img
+    ImageDraw.Draw(img).rectangle(
+        [img.width - BATTERY_LINE_WIDTH, img.height - height, img.width - 1, img.height - 1],
+        fill=BATTERY_LINE_COLOR,
+    )
+    return img
+
+
 # ─── Helper: Run pipeline for a single user ─────────────────────
 
 def _generate_for_device(config: dict, force: bool = False):
@@ -2814,8 +2847,33 @@ def get_status():
 
 # ─── Device-facing endpoints (for PhotoPainter / e-ink display) ──
 
+def _load_display_image(request: Request):
+    """Latest display image as RGB, with the battery line burned in if enabled.
+
+    The PhotoPainter firmware reports its charge in X-Battery-Percentage on
+    every fetch, so the line reflects the battery at the moment of download.
+    """
+    dithered = "data/images/latest_display_dithered.png"
+    original = "data/images/latest_display.png"
+
+    # Prefer dithered (optimised for e-ink), fall back to original
+    if os.path.exists(dithered):
+        image_path = dithered
+    elif os.path.exists(original):
+        image_path = original
+    else:
+        raise HTTPException(status_code=404, detail="No image generated yet")
+
+    img = Image.open(image_path).convert("RGB")
+    if load_config().get("battery_indicator") is True:
+        pct = parse_battery_percentage(request.headers.get("x-battery-percentage"))
+        if pct is not None:
+            draw_battery_line(img, pct)
+    return img
+
+
 @app.get("/api/display")
-def get_display_image(format: str = "png"):
+def get_display_image(request: Request, format: str = "png"):
     """
     Returns the latest display image for the e-ink device.
     The PhotoPainter custom firmware should poll this URL.
@@ -2826,33 +2884,26 @@ def get_display_image(format: str = "png"):
     Usage: Point your PhotoPainter firmware at:
       http://<your-server>:8000/api/display
     """
-    from fastapi.responses import FileResponse
-    
-    dithered = "data/images/latest_display_dithered.png"
-    original = "data/images/latest_display.png"
-    
-    # Prefer dithered (optimised for e-ink), fall back to original
-    if os.path.exists(dithered):
-        image_path = dithered
-    elif os.path.exists(original):
-        image_path = original
-    else:
-        raise HTTPException(status_code=404, detail="No image generated yet")
-    
+    img = _load_display_image(request)
+    buf = io.BytesIO()
+
     if format == "bmp":
         # Convert to BMP for firmware that requires it
-        bmp_path = "data/images/latest_display.bmp"
         try:
-            img = Image.open(image_path).convert("RGB")
-            img.save(bmp_path, "BMP")
-            return FileResponse(bmp_path, media_type="image/bmp", filename="display.bmp")
+            img.save(buf, "BMP")
+            with open("data/images/latest_display.bmp", "wb") as f:
+                f.write(buf.getvalue())
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"BMP conversion failed: {e}")
-    
-    return FileResponse(image_path, media_type="image/png", filename="display.png")
+        return Response(content=buf.getvalue(), media_type="image/bmp",
+                        headers={"Content-Disposition": 'attachment; filename="display.bmp"'})
+
+    img.save(buf, "PNG")
+    return Response(content=buf.getvalue(), media_type="image/png",
+                    headers={"Content-Disposition": 'attachment; filename="display.png"'})
 
 @app.get("/api/display/raw")
-def get_display_raw():
+def get_display_raw(request: Request):
     """Raw packed 4bpp framebuffer for the PhotoPainter firmware.
 
     The Glanceboard firmware decodes nothing: display_show_image() memcpy's the
@@ -2861,19 +2912,7 @@ def get_display_raw():
     bytes (192000 for 800x480) of 4bpp data — two pixels per byte, even x in
     the high nibble, odd x in the low nibble, row-major.
     """
-    from fastapi.responses import Response
-
-    dithered = "data/images/latest_display_dithered.png"
-    original = "data/images/latest_display.png"
-
-    if os.path.exists(dithered):
-        image_path = dithered
-    elif os.path.exists(original):
-        image_path = original
-    else:
-        raise HTTPException(status_code=404, detail="No image generated yet")
-
-    img = Image.open(image_path).convert("RGB")
+    img = _load_display_image(request)
     if img.size != (DISPLAY_WIDTH, DISPLAY_HEIGHT):
         img = img.resize((DISPLAY_WIDTH, DISPLAY_HEIGHT), Image.LANCZOS)
 
